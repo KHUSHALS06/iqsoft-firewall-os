@@ -1,1 +1,26 @@
-/target
+# Rust
+target/
+
+# SQLite databases
+*.db
+*.sqlite
+*.sqlite3
+
+# Logs
+*.log
+
+# Environment
+.env
+.env.*
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Certificates (keep only if they contain private keys)
+certs/*.key
+certs/*.pem/target
