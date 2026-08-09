@@ -21,11 +21,12 @@ impl FirewallRepository {
                 dst_ip,
                 src_port,
                 dst_port,
+                port_any,
                 interface_name,
                 log_enabled,
                 comment
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             "#,
         )
         .bind(rule.name)
@@ -38,6 +39,7 @@ impl FirewallRepository {
         .bind(rule.dst_ip)
         .bind(rule.src_port)
         .bind(rule.dst_port)
+        .bind(rule.port_any)
         .bind(rule.interface_name)
         .bind(rule.log_enabled)
         .bind(rule.comment)
@@ -64,6 +66,7 @@ impl FirewallRepository {
                 dst_ip,
                 src_port,
                 dst_port,
+                port_any,
                 interface_name,
                 log_enabled,
                 comment
@@ -93,6 +96,7 @@ impl FirewallRepository {
 
                 src_port: row.get("src_port"),
                 dst_port: row.get("dst_port"),
+                port_any: row.get::<i64, _>("port_any") != 0,
 
                 interface_name: row.get("interface_name"),
 
@@ -124,6 +128,7 @@ impl FirewallRepository {
                 dst_ip=?,
                 src_port=?,
                 dst_port=?,
+                port_any=?,
                 interface_name=?,
                 log_enabled=?,
                 comment=?
@@ -140,6 +145,7 @@ impl FirewallRepository {
         .bind(rule.dst_ip)
         .bind(rule.src_port)
         .bind(rule.dst_port)
+        .bind(rule.port_any)
         .bind(rule.interface_name)
         .bind(rule.log_enabled)
         .bind(rule.comment)

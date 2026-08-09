@@ -15,6 +15,10 @@ impl FirewallGenerator {
 
         let mut output = String::new();
 
+        // Full replace, not accumulation — without this, deleted rules
+        // stay live in the kernel and repeated commits duplicate rules.
+        output.push_str("flush ruleset;\n\n");
+
         output.push_str("table inet filter {\n\n");
 
         // INPUT
@@ -67,29 +71,26 @@ impl FirewallGenerator {
             }
 
             let mut line = String::from("        ");
+            let mut port_any_marker = false;
 
-            // Interface
             if let Some(iface) = &rule.interface_name {
                 if !iface.trim().is_empty() {
                     line.push_str(&format!("iif \"{}\" ", iface));
                 }
             }
 
-            // Source IP
             if let Some(src) = &rule.src_ip {
                 if !src.trim().is_empty() {
                     line.push_str(&format!("ip saddr {} ", src));
                 }
             }
 
-            // Destination IP
             if let Some(dst) = &rule.dst_ip {
                 if !dst.trim().is_empty() {
                     line.push_str(&format!("ip daddr {} ", dst));
                 }
             }
 
-            // Protocol
             match rule.protocol.to_lowercase().as_str() {
                 "tcp" => {
                     line.push_str("tcp ");
@@ -100,6 +101,8 @@ impl FirewallGenerator {
 
                     if let Some(port) = rule.dst_port {
                         line.push_str(&format!("dport {} ", port));
+                    } else if rule.port_any {
+                        port_any_marker = true;
                     }
                 }
 
@@ -112,6 +115,8 @@ impl FirewallGenerator {
 
                     if let Some(port) = rule.dst_port {
                         line.push_str(&format!("dport {} ", port));
+                    } else if rule.port_any {
+                        port_any_marker = true;
                     }
                 }
 
@@ -119,24 +124,24 @@ impl FirewallGenerator {
                     line.push_str("ip protocol icmp ");
                 }
 
-                "any" => {
-                    // no protocol match
-                }
+                "any" => {}
 
                 _ => continue,
             }
 
-            // Logging
             if rule.log_enabled {
                 line.push_str("log ");
             }
 
-            // Action
             match rule.action.to_lowercase().as_str() {
                 "accept" => line.push_str("accept"),
                 "drop" => line.push_str("drop"),
                 "reject" => line.push_str("reject"),
                 _ => continue,
+            }
+
+            if port_any_marker {
+                line.push_str(&format!(" # {}: all ports intentionally allowed", rule.name));
             }
 
             output.push_str(&line);

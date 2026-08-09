@@ -4,9 +4,7 @@ use axum::{
     response::IntoResponse,
     Json,
 };
-
 use serde_json::json;
-
 use crate::{
     app_state::AppState,
     firewall::{
@@ -16,11 +14,10 @@ use crate::{
     models::firewall_rule::FirewallRule,
     services::firewall_service::FirewallService,
 };
-
 pub async fn list_rules(
     State(state): State<AppState>,
-) -> impl IntoResponse {	
-	match FirewallService::list_rules(&state.db).await {
+) -> impl IntoResponse {
+        match FirewallService::list_rules(&state.db).await {
         Ok(rules) => (
             StatusCode::OK,
             Json(json!(rules)),
@@ -33,12 +30,11 @@ pub async fn list_rules(
         ),
     }
 }
-
 pub async fn add_rule(
     State(state): State<AppState>,
     Json(rule): Json<FirewallRule>,
 ) -> impl IntoResponse {
-	match FirewallService::add_rule(&state.db, rule).await {
+        match FirewallService::add_rule(&state.db, rule).await {
         Ok(_) => (
             StatusCode::OK,
             Json(json!({
@@ -53,7 +49,6 @@ pub async fn add_rule(
         ),
     }
 }
-
 pub async fn update_rule(
     Path(id): Path<i64>,
     State(state): State<AppState>,
@@ -74,7 +69,6 @@ pub async fn update_rule(
         ),
     }
 }
-
 pub async fn delete_rule(
     Path(id): Path<i64>,
     State(state): State<AppState>,
@@ -94,7 +88,6 @@ pub async fn delete_rule(
         ),
     }
 }
-
 pub async fn generate_config(
     State(state): State<AppState>,
 ) -> impl IntoResponse {
@@ -113,11 +106,30 @@ pub async fn generate_config(
         ),
     }
 }
-
 pub async fn commit(
     State(state): State<AppState>,
 ) -> impl IntoResponse {
     match FirewallCommit::commit(&state.db).await {
+        Ok(message) => (
+            StatusCode::OK,
+            Json(json!({
+                "status": "ok",
+                "message": message
+            })),
+        ),
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(json!({
+                "status": "error",
+                "message": e
+            })),
+        ),
+    }
+}
+pub async fn rollback(
+    State(_state): State<AppState>,
+) -> impl IntoResponse {
+    match FirewallCommit::rollback().await {
         Ok(message) => (
             StatusCode::OK,
             Json(json!({

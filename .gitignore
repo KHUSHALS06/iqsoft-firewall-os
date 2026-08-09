@@ -24,3 +24,5 @@ Thumbs.db
 # Certificates (keep only if they contain private keys)
 certs/*.key
 certs/*.pem/target
+config-history/
+config-history/

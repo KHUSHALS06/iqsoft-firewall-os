@@ -5,42 +5,32 @@ mod firewall;
 mod models;
 mod repository;
 mod services;
-
 use axum::{
     routing::{get, post, put},
     Router,
 };
-
 use std::net::SocketAddr;
-
 use api::{
     firewall as firewall_api,
     health,
 };
-
 use app_state::AppState;
-
 use database::{
     connection::create_pool,
     init::initialize_database,
 };
-
 #[tokio::main]
 async fn main() {
     println!("==================================");
     println!("     IQSOFT Firewall OS");
     println!("==================================");
-
     let db = create_pool()
         .await
         .expect("Failed to connect to database");
-
     initialize_database(&db)
         .await
         .expect("Failed to initialize database");
-
     let state = AppState { db };
-
     let app = Router::new()
         .route("/health", get(health::health))
         .route(
@@ -61,16 +51,16 @@ async fn main() {
             "/api/commit",
             post(firewall_api::commit),
         )
+        .route(
+            "/api/rollback",
+            post(firewall_api::rollback),
+        )
         .with_state(state);
-
     let addr = SocketAddr::from(([0, 0, 0, 0], 3000));
-
     println!("Server running on http://{}", addr);
-
     let listener = tokio::net::TcpListener::bind(addr)
         .await
         .unwrap();
-
     axum::serve(listener, app)
         .await
         .unwrap();
