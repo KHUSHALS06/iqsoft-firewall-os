@@ -26,3 +26,5 @@ certs/*.key
 certs/*.pem/target
 config-history/
 config-history/
+poky/
+meta-openembedded/
