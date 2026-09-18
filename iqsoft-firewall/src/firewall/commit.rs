@@ -1,6 +1,7 @@
 use crate::firewall::generator::FirewallGenerator;
 use crate::models::firewall_rule::FirewallRule;
 use crate::repository::firewall_repository::FirewallRepository;
+use crate::repository::network_config_repository::NetworkConfigRepository;
 use sqlx::SqlitePool;
 use std::{
     fs,
@@ -24,6 +25,13 @@ impl FirewallCommit {
         let _guard = lock.lock().await;
 
         fs::create_dir_all(HISTORY_DIR).map_err(|e| e.to_string())?;
+
+        let net_config = NetworkConfigRepository::get(pool)
+            .await
+            .map_err(|e| e.to_string())?;
+
+        Self::validate_interface_exists(&net_config.wan_interface)?;
+        Self::validate_interface_exists(&net_config.lan_interface)?;
 
         let config = FirewallGenerator::generate(pool).await?;
 
@@ -72,7 +80,32 @@ impl FirewallCommit {
         fs::write(CURRENT_PATH, &config).map_err(|e| e.to_string())?;
         fs::write(CURRENT_RULES_PATH, &rules_snapshot_json).map_err(|e| e.to_string())?;
 
+        if net_config.ip_forward_enabled {
+            // Runtime effect only — does not survive reboot yet. Persisting
+            // this via /etc/sysctl.d/ is a follow-up (see roadmap).
+            if let Err(e) = fs::write("/proc/sys/net/ipv4/ip_forward", "1") {
+                return Err(format!(
+                    "Firewall rules and NAT were applied, but enabling IPv4 forwarding failed: {}. \
+                     Traffic will not actually route until this is fixed — run \
+                     'sysctl -w net.ipv4.ip_forward=1' manually or fix permissions and re-commit.",
+                    e
+                ));
+            }
+        }
+
         Ok("Firewall updated successfully".into())
+    }
+
+    fn validate_interface_exists(name: &str) -> Result<(), String> {
+        let path = format!("/sys/class/net/{}", name);
+        if !Path::new(&path).exists() {
+            return Err(format!(
+                "Configured interface '{}' does not exist on this system — refusing to commit. \
+                 Check /api/network and update it to match your real WAN/LAN interfaces.",
+                name
+            ));
+        }
+        Ok(())
     }
 
     pub async fn rollback(pool: &SqlitePool, lock: &Arc<Mutex<()>>) -> Result<String, String> {

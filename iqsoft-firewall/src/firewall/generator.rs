@@ -1,6 +1,9 @@
 use crate::{
-    models::firewall_rule::FirewallRule,
-    repository::firewall_repository::FirewallRepository,
+    models::{firewall_rule::FirewallRule, network_config::NetworkConfig},
+    repository::{
+        firewall_repository::FirewallRepository,
+        network_config_repository::NetworkConfigRepository,
+    },
 };
 
 use ipnet::IpNet;
@@ -14,9 +17,13 @@ impl FirewallGenerator {
             .await
             .map_err(|e| e.to_string())?;
 
+        let net_config = NetworkConfigRepository::get(pool)
+            .await
+            .map_err(|e| e.to_string())?;
+
         let mut output = String::new();
 
- ive in the kernel and repeated commits duplicate rules.
+        // flush ruleset first: nftables config is declarative in the kernel and repeated commits duplicate rules.
         output.push_str("flush ruleset;\n\n");
 
         output.push_str("table inet filter {\n\n");
@@ -51,9 +58,36 @@ impl FirewallGenerator {
 
         output.push_str("    }\n");
 
-        output.push_str("}\n");
+        output.push_str("}\n\n");
+
+        Self::generate_nat_table(&mut output, &net_config);
 
         Ok(output)
+    }
+
+    fn generate_nat_table(output: &mut String, net_config: &NetworkConfig) {
+        if !net_config.nat_enabled {
+            return;
+        }
+
+        let wan = net_config.wan_interface.trim();
+        if wan.is_empty() {
+            eprintln!("WARNING: NAT is enabled but no WAN interface is configured — skipping NAT table");
+            return;
+        }
+
+        output.push_str("table ip nat {\n\n");
+
+        output.push_str("    chain postrouting {\n");
+        output.push_str("        type nat hook postrouting priority 100;\n");
+        output.push_str("        policy accept;\n\n");
+        output.push_str(&format!(
+            "        oifname \"{}\" masquerade\n",
+            wan
+        ));
+        output.push_str("    }\n");
+
+        output.push_str("}\n");
     }
 
     fn generate_chain(
@@ -205,7 +239,7 @@ impl FirewallGenerator {
         output.push('\n');
     }
 
-     fn ip_family(value: &str) -> Option<bool> {
+    fn ip_family(value: &str) -> Option<bool> {
         let trimmed = value.trim();
         if let Ok(net) = trimmed.parse::<IpNet>() {
             return Some(matches!(net, IpNet::V6(_)));

@@ -140,5 +140,43 @@ pub async fn initialize_database(pool: &SqlitePool) -> Result<(), sqlx::Error> {
         }
     }
 
+    // Check if network_config exists
+    let network_config_exists = sqlx::query(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='network_config';",
+    )
+    .fetch_optional(pool)
+    .await?
+    .is_some();
+
+    if !network_config_exists {
+        sqlx::query(
+            r#"
+            CREATE TABLE network_config (
+                id                   INTEGER PRIMARY KEY CHECK (id = 1),
+                wan_interface        TEXT NOT NULL DEFAULT 'eth0',
+                lan_interface        TEXT NOT NULL DEFAULT 'eth1',
+                nat_enabled          INTEGER NOT NULL DEFAULT 1,
+                ip_forward_enabled   INTEGER NOT NULL DEFAULT 1
+            );
+            "#,
+        )
+        .execute(pool)
+        .await?;
+
+        // Single row, seeded with placeholder interface names — the operator
+        // must set the real ones via PUT /api/network before committing,
+        // otherwise commit will fail validation against live interfaces.
+        sqlx::query(
+            r#"
+            INSERT INTO network_config (id, wan_interface, lan_interface, nat_enabled, ip_forward_enabled)
+            VALUES (1, 'eth0', 'eth1', 1, 1);
+            "#,
+        )
+        .execute(pool)
+        .await?;
+
+        println!("✓ Created network_config table (defaults: wan=eth0, lan=eth1 — update before commit)");
+    }
+
     Ok(())
 }

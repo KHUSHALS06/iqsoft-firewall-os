@@ -13,6 +13,7 @@ use std::net::SocketAddr;
 use api::{
     firewall as firewall_api,
     health,
+    network_config as network_config_api,
 };
 use app_state::AppState;
 use database::{
@@ -49,6 +50,11 @@ async fn main() {
         .route(
             "/api/generate",
             get(firewall_api::generate_config),
+        )
+        .route(
+            "/api/network",
+            get(network_config_api::get_network_config)
+                .put(network_config_api::set_network_config),
         )
         .route(
             "/api/commit",
