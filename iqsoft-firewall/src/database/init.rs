@@ -28,6 +28,7 @@ pub async fn initialize_database(pool: &SqlitePool) -> Result<(), sqlx::Error> {
 
                 src_port        INTEGER,
                 dst_port        INTEGER,
+                port_any        INTEGER NOT NULL DEFAULT 0,
 
                 interface_name  TEXT,
 
@@ -42,7 +43,6 @@ pub async fn initialize_database(pool: &SqlitePool) -> Result<(), sqlx::Error> {
 
         println!("✓ Created firewall_rules table");
     } else {
-        // Detect whether this is the old schema
         let rows = sqlx::query("PRAGMA table_info(firewall_rules);")
             .fetch_all(pool)
             .await?;
@@ -140,6 +140,24 @@ pub async fn initialize_database(pool: &SqlitePool) -> Result<(), sqlx::Error> {
         }
     }
 
+    let rule_columns = sqlx::query("PRAGMA table_info(firewall_rules);")
+        .fetch_all(pool)
+        .await?;
+
+    let has_port_any = rule_columns
+        .iter()
+        .any(|row| row.get::<String, _>("name") == "port_any");
+
+    if !has_port_any {
+        sqlx::query(
+            "ALTER TABLE firewall_rules ADD COLUMN port_any INTEGER NOT NULL DEFAULT 0;",
+        )
+        .execute(pool)
+        .await?;
+
+        println!("✓ Added port_any column to firewall_rules");
+    }
+
     // Check if network_config exists
     let network_config_exists = sqlx::query(
         "SELECT name FROM sqlite_master WHERE type='table' AND name='network_config';",
@@ -163,9 +181,6 @@ pub async fn initialize_database(pool: &SqlitePool) -> Result<(), sqlx::Error> {
         .execute(pool)
         .await?;
 
-        // Single row, seeded with placeholder interface names — the operator
-        // must set the real ones via PUT /api/network before committing,
-        // otherwise commit will fail validation against live interfaces.
         sqlx::query(
             r#"
             INSERT INTO network_config (id, wan_interface, lan_interface, nat_enabled, ip_forward_enabled)
@@ -177,6 +192,83 @@ pub async fn initialize_database(pool: &SqlitePool) -> Result<(), sqlx::Error> {
 
         println!("✓ Created network_config table (defaults: wan=eth0, lan=eth1 — update before commit)");
     }
+
+    sqlx::query(
+        r#"
+        CREATE TABLE IF NOT EXISTS dhcp_config (
+            id                  INTEGER PRIMARY KEY CHECK (id = 1),
+            enabled             INTEGER NOT NULL DEFAULT 0,
+            interface_name      TEXT NOT NULL DEFAULT 'eth1',
+            subnet              TEXT NOT NULL DEFAULT '192.168.1.0/24',
+            range_start         TEXT NOT NULL DEFAULT '192.168.1.100',
+            range_end           TEXT NOT NULL DEFAULT '192.168.1.200',
+            gateway             TEXT,
+            dns_servers         TEXT NOT NULL DEFAULT '1.1.1.1,8.8.8.8',
+            lease_time_seconds  INTEGER NOT NULL DEFAULT 43200,
+            domain              TEXT
+        );
+        "#,
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        r#"
+        INSERT OR IGNORE INTO dhcp_config (id, enabled, interface_name, gateway)
+        VALUES (1, 0, 'eth1', '192.168.1.1');
+        "#,
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        r#"
+        CREATE TABLE IF NOT EXISTS dhcp_reservations (
+            id        INTEGER PRIMARY KEY AUTOINCREMENT,
+            mac       TEXT NOT NULL UNIQUE,
+            ip        TEXT NOT NULL UNIQUE,
+            hostname  TEXT
+        );
+        "#,
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        r#"
+        CREATE TABLE IF NOT EXISTS dns_config (
+            id                  INTEGER PRIMARY KEY CHECK (id = 1),
+            enabled             INTEGER NOT NULL DEFAULT 0,
+            listen_interfaces   TEXT NOT NULL DEFAULT 'eth1',
+            upstream_servers    TEXT NOT NULL DEFAULT '1.1.1.1,8.8.8.8',
+            local_domain        TEXT,
+            use_dhcp_hostnames  INTEGER NOT NULL DEFAULT 0
+        );
+        "#,
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        r#"
+        INSERT OR IGNORE INTO dns_config (id, enabled, listen_interfaces)
+        VALUES (1, 0, 'eth1');
+        "#,
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        r#"
+        CREATE TABLE IF NOT EXISTS dns_static_records (
+            id        INTEGER PRIMARY KEY AUTOINCREMENT,
+            hostname  TEXT NOT NULL UNIQUE,
+            ip        TEXT NOT NULL
+        );
+        "#,
+    )
+    .execute(pool)
+    .await?;
 
     Ok(())
 }

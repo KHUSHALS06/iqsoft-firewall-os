@@ -17,6 +17,7 @@ const PREVIOUS_PATH: &str = "config-history/previous.nft";
 const CURRENT_RULES_PATH: &str = "config-history/current.rules.json";
 const PREVIOUS_RULES_PATH: &str = "config-history/previous.rules.json";
 const STAGED_PATH: &str = "/tmp/iqsoft-firewall-staged.nft";
+const SYSCTL_PERSIST_PATH: &str = "/etc/sysctl.d/99-iqsoft-firewall.conf";
 
 pub struct FirewallCommit;
 
@@ -80,20 +81,45 @@ impl FirewallCommit {
         fs::write(CURRENT_PATH, &config).map_err(|e| e.to_string())?;
         fs::write(CURRENT_RULES_PATH, &rules_snapshot_json).map_err(|e| e.to_string())?;
 
-        if net_config.ip_forward_enabled {
-            // Runtime effect only — does not survive reboot yet. Persisting
-            // this via /etc/sysctl.d/ is a follow-up (see roadmap).
-            if let Err(e) = fs::write("/proc/sys/net/ipv4/ip_forward", "1") {
-                return Err(format!(
-                    "Firewall rules and NAT were applied, but enabling IPv4 forwarding failed: {}. \
-                     Traffic will not actually route until this is fixed — run \
-                     'sysctl -w net.ipv4.ip_forward=1' manually or fix permissions and re-commit.",
-                    e
-                ));
-            }
+        let forward_value = if net_config.ip_forward_enabled { "1" } else { "0" };
+
+        if let Err(e) = fs::write("/proc/sys/net/ipv4/ip_forward", forward_value) {
+            return Err(format!(
+                "Firewall rules and NAT were applied, but setting IPv4 forwarding to '{}' failed: {}. \
+                 Traffic will not route as configured until this is fixed — run \
+                 'sysctl -w net.ipv4.ip_forward={}' manually or fix permissions and re-commit.",
+                forward_value, e, forward_value
+            ));
         }
 
-        Ok("Firewall updated successfully".into())
+        let mut message = String::from("Firewall updated successfully");
+
+        if let Err(e) = Self::persist_ip_forward_sysctl(forward_value) {
+            message.push_str(&format!(
+                "\nWarning: IPv4 forwarding is set to '{}' right now, but persisting it to {} failed: {}. \
+                 It will revert to the default (disabled) after a reboot until this is fixed.",
+                forward_value, SYSCTL_PERSIST_PATH, e
+            ));
+        }
+
+        Ok(message)
+    }
+
+    fn persist_ip_forward_sysctl(value: &str) -> Result<(), String> {
+        let contents = format!(
+            "# Managed by iqsoft-firewall — overwritten on every commit, do not edit by hand.\n\
+             net.ipv4.ip_forward = {}\n",
+            value
+        );
+
+        // Write to a temp file and rename over the real path, so a crash or
+        // power loss mid-write can never leave a half-written sysctl.d file
+        // around to break the next boot.
+        let tmp_path = format!("{}.tmp", SYSCTL_PERSIST_PATH);
+        fs::write(&tmp_path, contents).map_err(|e| e.to_string())?;
+        fs::rename(&tmp_path, SYSCTL_PERSIST_PATH).map_err(|e| e.to_string())?;
+
+        Ok(())
     }
 
     fn validate_interface_exists(name: &str) -> Result<(), String> {

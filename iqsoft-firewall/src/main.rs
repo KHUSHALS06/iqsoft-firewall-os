@@ -1,6 +1,8 @@
 mod api;
 mod app_state;
 mod database;
+mod dhcp;
+mod dns;
 mod firewall;
 mod models;
 mod repository;
@@ -11,6 +13,8 @@ use axum::{
 };
 use std::net::SocketAddr;
 use api::{
+    dhcp as dhcp_api,
+    dns as dns_api,
     firewall as firewall_api,
     health,
     network_config as network_config_api,
@@ -63,6 +67,64 @@ async fn main() {
         .route(
             "/api/rollback",
             post(firewall_api::rollback),
+        )
+        .route(
+            "/api/dhcp/config",
+            get(dhcp_api::get_config)
+                .put(dhcp_api::set_config),
+        )
+        .route(
+            "/api/dhcp/reservations",
+            get(dhcp_api::list_reservations)
+                .post(dhcp_api::add_reservation),
+        )
+        .route(
+            "/api/dhcp/reservations/{id}",
+            put(dhcp_api::update_reservation)
+                .delete(dhcp_api::delete_reservation),
+        )
+        .route(
+            "/api/dhcp/generate",
+            get(dhcp_api::generate_config),
+        )
+        .route(
+            "/api/dhcp/leases",
+            get(dhcp_api::leases),
+        )
+        .route(
+            "/api/dhcp/commit",
+            post(dhcp_api::commit),
+        )
+        .route(
+            "/api/dhcp/rollback",
+            post(dhcp_api::rollback),
+        )
+        .route(
+            "/api/dns/config",
+            get(dns_api::get_config)
+                .put(dns_api::set_config),
+        )
+        .route(
+            "/api/dns/records",
+            get(dns_api::list_records)
+                .post(dns_api::add_record),
+        )
+        .route(
+            "/api/dns/records/{id}",
+            put(dns_api::update_record)
+                .delete(dns_api::delete_record),
+        )
+        .route(
+            "/api/dns/generate",
+            get(dns_api::generate_config),
+        )
+        .route(
+            "/api/dns/commit",
+            post(dns_api::commit),
+        )
+        .route(
+            "/api/dns/rollback",
+            post(dns_api::rollback),
         )
         .with_state(state);
     let addr = SocketAddr::from(([0, 0, 0, 0], 3000));
