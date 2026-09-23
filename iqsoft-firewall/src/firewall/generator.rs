@@ -1,13 +1,18 @@
 use crate::{
-    models::{firewall_rule::FirewallRule, network_config::NetworkConfig},
+    models::{
+        firewall_rule::FirewallRule, network_config::NetworkConfig,
+        port_forward::PortForwardRule,
+    },
     repository::{
         firewall_repository::FirewallRepository,
         network_config_repository::NetworkConfigRepository,
+        port_forward_repository::PortForwardRepository,
     },
 };
 
 use ipnet::IpNet;
 use sqlx::SqlitePool;
+use std::net::Ipv4Addr;
 
 pub struct FirewallGenerator;
 
@@ -20,6 +25,13 @@ impl FirewallGenerator {
         let net_config = NetworkConfigRepository::get(pool)
             .await
             .map_err(|e| e.to_string())?;
+
+        let port_forwards: Vec<PortForwardRule> = PortForwardRepository::list_rules(pool)
+            .await
+            .map_err(|e| e.to_string())?
+            .into_iter()
+            .filter(|r| r.enabled)
+            .collect();
 
         let mut output = String::new();
 
@@ -45,6 +57,12 @@ impl FirewallGenerator {
         output.push_str("        type filter hook forward priority 0;\n");
         output.push_str("        policy drop;\n\n");
 
+        // Replies to allowed connections (including replies from a port-forwarded
+        // server back to the internet) must be let through.
+        output.push_str("        ct state established,related accept\n\n");
+
+        Self::generate_port_forward_accepts(&mut output, &net_config, &port_forwards);
+
         Self::generate_chain(&mut output, &rules, "FORWARD");
 
         output.push_str("    }\n\n");
@@ -60,31 +78,148 @@ impl FirewallGenerator {
 
         output.push_str("}\n\n");
 
-        Self::generate_nat_table(&mut output, &net_config);
+        Self::generate_nat_table(&mut output, &net_config, &port_forwards);
 
         Ok(output)
     }
 
-    fn generate_nat_table(output: &mut String, net_config: &NetworkConfig) {
-        if !net_config.nat_enabled {
+    /// "both" expands to tcp + udp.
+    fn pf_protocols(rule: &PortForwardRule) -> Vec<&'static str> {
+        match rule.protocol.as_str() {
+            "tcp" => vec!["tcp"],
+            "udp" => vec!["udp"],
+            "both" => vec!["tcp", "udp"],
+            _ => vec![],
+        }
+    }
+
+    fn pf_port_expr(start: i32, end: i32) -> String {
+        if start == end {
+            start.to_string()
+        } else {
+            format!("{}-{}", start, end)
+        }
+    }
+
+    fn pf_is_usable(rule: &PortForwardRule) -> bool {
+        if rule.internal_ip.trim().parse::<Ipv4Addr>().is_err() {
+            eprintln!(
+                "WARNING: skipping port forward '{}' (id={:?}) - invalid internal_ip in database: '{}'",
+                rule.name, rule.id, rule.internal_ip
+            );
+            return false;
+        }
+        if Self::pf_protocols(rule).is_empty() {
+            eprintln!(
+                "WARNING: skipping port forward '{}' (id={:?}) - invalid protocol in database: '{}'",
+                rule.name, rule.id, rule.protocol
+            );
+            return false;
+        }
+        true
+    }
+
+    /// After DNAT the FORWARD chain sees the *internal* address and port, so the
+    /// accept rules match on those and only for connections that were DNAT'ed.
+    fn generate_port_forward_accepts(
+        output: &mut String,
+        net_config: &NetworkConfig,
+        port_forwards: &[PortForwardRule],
+    ) {
+        let wan = net_config.wan_interface.trim();
+        if wan.is_empty() {
+            return;
+        }
+
+        for rule in port_forwards {
+            if !Self::pf_is_usable(rule) {
+                continue;
+            }
+
+            let internal_ports =
+                Self::pf_port_expr(rule.internal_port_start, rule.internal_port_end());
+
+            for proto in Self::pf_protocols(rule) {
+                output.push_str(&format!(
+                    "        iifname \"{}\" ip daddr {} {} dport {} ct status dnat accept # port forward: {}\n",
+                    wan,
+                    rule.internal_ip.trim(),
+                    proto,
+                    internal_ports,
+                    rule.name.replace('\n', " ").replace('\r', " "),
+                ));
+            }
+        }
+
+        output.push('\n');
+    }
+
+    fn generate_nat_table(
+        output: &mut String,
+        net_config: &NetworkConfig,
+        port_forwards: &[PortForwardRule],
+    ) {
+        let has_forwards = !port_forwards.is_empty();
+
+        if !net_config.nat_enabled && !has_forwards {
             return;
         }
 
         let wan = net_config.wan_interface.trim();
         if wan.is_empty() {
-            eprintln!("WARNING: NAT is enabled but no WAN interface is configured — skipping NAT table");
+            eprintln!("WARNING: NAT/port forwarding is enabled but no WAN interface is configured - skipping NAT table");
             return;
         }
 
         output.push_str("table ip nat {\n\n");
 
+        // Port forwarding (DNAT)
+        output.push_str("    chain prerouting {\n");
+        output.push_str("        type nat hook prerouting priority -100;\n");
+        output.push_str("        policy accept;\n\n");
+
+        for rule in port_forwards {
+            if !Self::pf_is_usable(rule) {
+                continue;
+            }
+
+            let external_ports =
+                Self::pf_port_expr(rule.external_port_start, rule.external_port_end);
+
+            // Single port: rewrite to the chosen internal port.
+            // Range: keep the same port numbers (dnat to the address only).
+            let target = if rule.external_port_start == rule.external_port_end {
+                format!("{}:{}", rule.internal_ip.trim(), rule.internal_port_start)
+            } else {
+                rule.internal_ip.trim().to_string()
+            };
+
+            for proto in Self::pf_protocols(rule) {
+                output.push_str(&format!(
+                    "        iifname \"{}\" {} dport {} dnat to {} # {}\n",
+                    wan,
+                    proto,
+                    external_ports,
+                    target,
+                    rule.name.replace('\n', " ").replace('\r', " "),
+                ));
+            }
+        }
+
+        output.push_str("    }\n\n");
+
+        // Outbound NAT (masquerade)
         output.push_str("    chain postrouting {\n");
         output.push_str("        type nat hook postrouting priority 100;\n");
         output.push_str("        policy accept;\n\n");
-        output.push_str(&format!(
-            "        oifname \"{}\" masquerade\n",
-            wan
-        ));
+
+        if net_config.nat_enabled {
+            output.push_str(&format!(
+                "        oifname \"{}\" masquerade\n",
+                wan
+            ));
+        }
+
         output.push_str("    }\n");
 
         output.push_str("}\n");

@@ -18,6 +18,7 @@ use api::{
     firewall as firewall_api,
     health,
     network_config as network_config_api,
+    port_forward as port_forward_api,
 };
 use app_state::AppState;
 use database::{
@@ -125,6 +126,16 @@ async fn main() {
         .route(
             "/api/dns/rollback",
             post(dns_api::rollback),
+        )
+        .route(
+            "/api/port-forwards",
+            get(port_forward_api::list_rules)
+                .post(port_forward_api::add_rule),
+        )
+        .route(
+            "/api/port-forwards/{id}",
+            put(port_forward_api::update_rule)
+                .delete(port_forward_api::delete_rule),
         )
         .with_state(state);
     let addr = SocketAddr::from(([0, 0, 0, 0], 3000));

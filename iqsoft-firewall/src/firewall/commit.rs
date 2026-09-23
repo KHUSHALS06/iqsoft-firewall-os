@@ -1,7 +1,9 @@
 use crate::firewall::generator::FirewallGenerator;
 use crate::models::firewall_rule::FirewallRule;
+use crate::models::port_forward::PortForwardRule;
 use crate::repository::firewall_repository::FirewallRepository;
 use crate::repository::network_config_repository::NetworkConfigRepository;
+use crate::repository::port_forward_repository::PortForwardRepository;
 use sqlx::SqlitePool;
 use std::{
     fs,
@@ -16,6 +18,8 @@ const CURRENT_PATH: &str = "config-history/current.nft";
 const PREVIOUS_PATH: &str = "config-history/previous.nft";
 const CURRENT_RULES_PATH: &str = "config-history/current.rules.json";
 const PREVIOUS_RULES_PATH: &str = "config-history/previous.rules.json";
+const CURRENT_PF_PATH: &str = "config-history/current.portforwards.json";
+const PREVIOUS_PF_PATH: &str = "config-history/previous.portforwards.json";
 const STAGED_PATH: &str = "/tmp/iqsoft-firewall-staged.nft";
 const SYSCTL_PERSIST_PATH: &str = "/etc/sysctl.d/99-iqsoft-firewall.conf";
 
@@ -42,6 +46,12 @@ impl FirewallCommit {
         let rules_snapshot_json =
             serde_json::to_string(&rules_snapshot).map_err(|e| e.to_string())?;
 
+        let pf_snapshot = PortForwardRepository::list_rules(pool)
+            .await
+            .map_err(|e| e.to_string())?;
+        let pf_snapshot_json =
+            serde_json::to_string(&pf_snapshot).map_err(|e| e.to_string())?;
+
         fs::write(STAGED_PATH, &config).map_err(|e| e.to_string())?;
 
         let check = Command::new("nft")
@@ -64,6 +74,12 @@ impl FirewallCommit {
         if Path::new(CURRENT_RULES_PATH).exists() {
             fs::copy(CURRENT_RULES_PATH, PREVIOUS_RULES_PATH).map_err(|e| e.to_string())?;
         }
+        if Path::new(CURRENT_PF_PATH).exists() {
+            fs::copy(CURRENT_PF_PATH, PREVIOUS_PF_PATH).map_err(|e| e.to_string())?;
+        } else if Path::new(CURRENT_PATH).exists() {
+            // The live config predates port forwarding, so its snapshot is "no port forwards".
+            fs::write(PREVIOUS_PF_PATH, "[]").map_err(|e| e.to_string())?;
+        }
 
         let apply = Command::new("nft")
             .arg("-f")
@@ -80,6 +96,7 @@ impl FirewallCommit {
 
         fs::write(CURRENT_PATH, &config).map_err(|e| e.to_string())?;
         fs::write(CURRENT_RULES_PATH, &rules_snapshot_json).map_err(|e| e.to_string())?;
+        fs::write(CURRENT_PF_PATH, &pf_snapshot_json).map_err(|e| e.to_string())?;
 
         let forward_value = if net_config.ip_forward_enabled { "1" } else { "0" };
 
@@ -176,6 +193,16 @@ impl FirewallCommit {
         let rules_json = fs::read_to_string(PREVIOUS_RULES_PATH).map_err(|e| e.to_string())?;
         let rules: Vec<FirewallRule> = serde_json::from_str(&rules_json).map_err(|e| e.to_string())?;
 
+        // Older snapshots were taken before port forwarding existed: treat a
+        // missing file as "no port forwards".
+        let pf_json = if Path::new(PREVIOUS_PF_PATH).exists() {
+            fs::read_to_string(PREVIOUS_PF_PATH).map_err(|e| e.to_string())?
+        } else {
+            "[]".to_string()
+        };
+        let port_forwards: Vec<PortForwardRule> =
+            serde_json::from_str(&pf_json).map_err(|e| e.to_string())?;
+
         if let Err(e) = FirewallRepository::replace_all_rules(pool, rules).await {
             return Err(format!(
                 "Rollback applied to the live firewall, but failed to sync the database: {}. The live firewall and database are now out of sync — do not run /api/commit until this is resolved.",
@@ -183,8 +210,16 @@ impl FirewallCommit {
             ));
         }
 
+        if let Err(e) = PortForwardRepository::replace_all_rules(pool, port_forwards).await {
+            return Err(format!(
+                "Rollback applied to the live firewall, but failed to sync the port forward rules in the database: {}. The live firewall and database are now out of sync — do not run /api/commit until this is resolved.",
+                e
+            ));
+        }
+
         fs::copy(PREVIOUS_PATH, CURRENT_PATH).map_err(|e| e.to_string())?;
         fs::copy(PREVIOUS_RULES_PATH, CURRENT_RULES_PATH).map_err(|e| e.to_string())?;
+        fs::write(CURRENT_PF_PATH, &pf_json).map_err(|e| e.to_string())?;
 
         Ok("Rolled back to previous configuration successfully".into())
     }

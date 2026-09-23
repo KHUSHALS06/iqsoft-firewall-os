@@ -270,5 +270,23 @@ pub async fn initialize_database(pool: &SqlitePool) -> Result<(), sqlx::Error> {
     .execute(pool)
     .await?;
 
+    sqlx::query(
+        r#"
+        CREATE TABLE IF NOT EXISTS port_forward_rules (
+            id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+            name                 TEXT NOT NULL,
+            enabled              INTEGER NOT NULL DEFAULT 1,
+            protocol             TEXT NOT NULL,
+            external_port_start  INTEGER NOT NULL,
+            external_port_end    INTEGER NOT NULL,
+            internal_ip          TEXT NOT NULL,
+            internal_port_start  INTEGER NOT NULL,
+            comment              TEXT
+        );
+        "#,
+    )
+    .execute(pool)
+    .await?;
+
     Ok(())
 }
