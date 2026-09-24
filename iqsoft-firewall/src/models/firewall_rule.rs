@@ -18,6 +18,22 @@ pub struct FirewallRule {
     pub port_any: bool,              // explicit "allow all ports" for tcp/udp
     pub interface_name: Option<String>,
     // Optional features
+    pub rate_limit: Option<String>,
     pub log_enabled: bool,
     pub comment: Option<String>,
+}
+
+pub fn normalize_rate_limit(value: &str) -> Option<String> {
+    let (count, unit) = value.trim().split_once('/')?;
+
+    let count: u32 = count.trim().parse().ok()?;
+    if count == 0 || count > 1_000_000 {
+        return None;
+    }
+
+    let unit = unit.trim().to_ascii_lowercase();
+    match unit.as_str() {
+        "second" | "minute" | "hour" | "day" => Some(format!("{}/{}", count, unit)),
+        _ => None,
+    }
 }

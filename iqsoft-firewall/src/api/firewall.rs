@@ -1,23 +1,25 @@
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::StatusCode,
     response::IntoResponse,
     Json,
 };
+use serde::Deserialize;
 use serde_json::json;
 use crate::{
     app_state::AppState,
     firewall::{
-        commit::FirewallCommit,
         generator::FirewallGenerator,
+        safe_commit::SafeCommitError,
     },
     models::firewall_rule::FirewallRule,
     services::firewall_service::FirewallService,
 };
+
 pub async fn list_rules(
     State(state): State<AppState>,
 ) -> impl IntoResponse {
-        match FirewallService::list_rules(&state.db).await {
+    match FirewallService::list_rules(&state.db).await {
         Ok(rules) => (
             StatusCode::OK,
             Json(json!(rules)),
@@ -30,11 +32,12 @@ pub async fn list_rules(
         ),
     }
 }
+
 pub async fn add_rule(
     State(state): State<AppState>,
     Json(rule): Json<FirewallRule>,
 ) -> impl IntoResponse {
-        match FirewallService::add_rule(&state.db, rule).await {
+    match FirewallService::add_rule(&state.db, rule).await {
         Ok(_) => (
             StatusCode::OK,
             Json(json!({
@@ -49,6 +52,7 @@ pub async fn add_rule(
         ),
     }
 }
+
 pub async fn update_rule(
     Path(id): Path<i64>,
     State(state): State<AppState>,
@@ -69,6 +73,7 @@ pub async fn update_rule(
         ),
     }
 }
+
 pub async fn delete_rule(
     Path(id): Path<i64>,
     State(state): State<AppState>,
@@ -88,6 +93,7 @@ pub async fn delete_rule(
         ),
     }
 }
+
 pub async fn generate_config(
     State(state): State<AppState>,
 ) -> impl IntoResponse {
@@ -106,10 +112,50 @@ pub async fn generate_config(
         ),
     }
 }
+
+#[derive(Deserialize)]
+pub struct CommitParams {
+    pub confirm_within: Option<u64>,
+}
+
 pub async fn commit(
     State(state): State<AppState>,
+    Query(params): Query<CommitParams>,
 ) -> impl IntoResponse {
-    match FirewallCommit::commit(&state.db, &state.commit_lock).await {
+    match state
+        .safe_commit
+        .commit(&state.db, &state.commit_lock, params.confirm_within)
+        .await
+    {
+        Ok(message) => (
+            StatusCode::OK,
+            Json(json!({
+                "status": "ok",
+                "message": message
+            })),
+        ),
+        Err(SafeCommitError::Pending(seconds_left)) => (
+            StatusCode::CONFLICT,
+            Json(json!({
+                "status": "error",
+                "message": "A commit is waiting for confirmation. Confirm it or wait for the automatic rollback.",
+                "seconds_left": seconds_left
+            })),
+        ),
+        Err(SafeCommitError::Invalid(message)) | Err(SafeCommitError::Failed(message)) => (
+            StatusCode::BAD_REQUEST,
+            Json(json!({
+                "status": "error",
+                "message": message
+            })),
+        ),
+    }
+}
+
+pub async fn confirm_commit(
+    State(state): State<AppState>,
+) -> impl IntoResponse {
+    match state.safe_commit.confirm().await {
         Ok(message) => (
             StatusCode::OK,
             Json(json!({
@@ -118,7 +164,7 @@ pub async fn commit(
             })),
         ),
         Err(e) => (
-            StatusCode::BAD_REQUEST,
+            StatusCode::NOT_FOUND,
             Json(json!({
                 "status": "error",
                 "message": e
@@ -126,10 +172,29 @@ pub async fn commit(
         ),
     }
 }
+
+pub async fn commit_status(
+    State(state): State<AppState>,
+) -> impl IntoResponse {
+    match state.safe_commit.seconds_left().await {
+        Some(seconds_left) => Json(json!({
+            "pending": true,
+            "seconds_left": seconds_left
+        })),
+        None => Json(json!({
+            "pending": false
+        })),
+    }
+}
+
 pub async fn rollback(
     State(state): State<AppState>,
 ) -> impl IntoResponse {
-    match FirewallCommit::rollback(&state.db, &state.commit_lock).await {
+    match state
+        .safe_commit
+        .rollback(&state.db, &state.commit_lock)
+        .await
+    {
         Ok(message) => (
             StatusCode::OK,
             Json(json!({

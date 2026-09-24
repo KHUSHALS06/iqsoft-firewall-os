@@ -23,10 +23,11 @@ impl FirewallRepository {
                 dst_port,
                 port_any,
                 interface_name,
+                rate_limit,
                 log_enabled,
                 comment
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             "#,
         )
         .bind(rule.name)
@@ -41,6 +42,7 @@ impl FirewallRepository {
         .bind(rule.dst_port)
         .bind(rule.port_any)
         .bind(rule.interface_name)
+        .bind(rule.rate_limit)
         .bind(rule.log_enabled)
         .bind(rule.comment)
         .execute(pool)
@@ -68,6 +70,7 @@ impl FirewallRepository {
                 dst_port,
                 port_any,
                 interface_name,
+                rate_limit,
                 log_enabled,
                 comment
             FROM firewall_rules
@@ -100,6 +103,8 @@ impl FirewallRepository {
 
                 interface_name: row.get("interface_name"),
 
+                rate_limit: row.get("rate_limit"),
+
                 log_enabled: row.get::<i64, _>("log_enabled") != 0,
 
                 comment: row.get("comment"),
@@ -130,6 +135,7 @@ impl FirewallRepository {
                 dst_port=?,
                 port_any=?,
                 interface_name=?,
+                rate_limit=?,
                 log_enabled=?,
                 comment=?
             WHERE id=?
@@ -147,6 +153,7 @@ impl FirewallRepository {
         .bind(rule.dst_port)
         .bind(rule.port_any)
         .bind(rule.interface_name)
+        .bind(rule.rate_limit)
         .bind(rule.log_enabled)
         .bind(rule.comment)
         .bind(id)
@@ -195,10 +202,11 @@ impl FirewallRepository {
                     dst_port,
                     port_any,
                     interface_name,
+                    rate_limit,
                     log_enabled,
                     comment
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 "#,
             )
             .bind(rule.id)
@@ -214,6 +222,7 @@ impl FirewallRepository {
             .bind(rule.dst_port)
             .bind(rule.port_any)
             .bind(rule.interface_name)
+            .bind(rule.rate_limit)
             .bind(rule.log_enabled)
             .bind(rule.comment)
             .execute(&mut *tx)

@@ -1,6 +1,6 @@
 use crate::{
     models::{
-        firewall_rule::FirewallRule, network_config::NetworkConfig,
+        firewall_rule::{normalize_rate_limit, FirewallRule}, network_config::NetworkConfig,
         port_forward::PortForwardRule,
     },
     repository::{
@@ -350,6 +350,29 @@ impl FirewallGenerator {
                 "any" => {}
 
                 _ => continue,
+            }
+
+            if let Some(raw) = &rule.rate_limit {
+                let trimmed = raw.trim();
+
+                if !trimmed.is_empty() {
+                    match normalize_rate_limit(trimmed) {
+                        Some(rate) => {
+                            if rule.action.eq_ignore_ascii_case("accept") {
+                                line.push_str(&format!("limit rate {} ", rate));
+                            } else {
+                                line.push_str(&format!("limit rate over {} ", rate));
+                            }
+                        }
+                        None => {
+                            eprintln!(
+                                "WARNING: skipping rule '{}' (id={:?}) — invalid rate_limit in database: '{}'",
+                                rule.name, rule.id, raw
+                            );
+                            continue;
+                        }
+                    }
+                }
             }
 
             if rule.log_enabled {
