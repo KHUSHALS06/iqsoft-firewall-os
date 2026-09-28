@@ -7,6 +7,7 @@ use crate::{
         port_forward::PortForwardRule,
     },
     repository::{
+        address_repository::{AddressRepository, REF_PREFIX},
         dhcp_repository::DhcpRepository,
         dns_repository::DnsRepository,
         firewall_repository::FirewallRepository,
@@ -17,9 +18,23 @@ use crate::{
 
 use ipnet::IpNet;
 use sqlx::SqlitePool;
+use std::collections::{BTreeMap, BTreeSet};
 use std::net::{Ipv4Addr, SocketAddr};
 
 pub struct FirewallGenerator;
+
+/// An address object or group that at least one enabled rule refers to,
+/// ready to be written as an nftables named set.
+struct AddrSet {
+    /// Name of the set inside nftables, always `addr_<lowercase name>`.
+    set_name: String,
+    is_v6: bool,
+    /// Already validated and normalized, safe to place in the ruleset.
+    elements: Vec<String>,
+}
+
+/// Sets keyed by the lowercase object/group name (names are case-insensitive).
+type AddrSets = BTreeMap<String, AddrSet>;
 
 impl FirewallGenerator {
     pub async fn generate(pool: &SqlitePool) -> Result<String, String> {
@@ -46,12 +61,16 @@ impl FirewallGenerator {
             .filter(|r| r.enabled)
             .collect();
 
+        let addr_sets = Self::load_address_sets(pool, &rules).await?;
+
         let mut output = String::new();
 
         // flush ruleset first: nftables config is declarative in the kernel and repeated commits duplicate rules.
         output.push_str("flush ruleset;\n\n");
 
         output.push_str("table inet filter {\n\n");
+
+        Self::generate_address_sets(&mut output, &addr_sets);
 
         // INPUT
         output.push_str("    chain input {\n");
@@ -64,7 +83,7 @@ impl FirewallGenerator {
 
         Self::generate_self_protection(&mut output, &net_config, &dhcp_config, &dns_config);
 
-        Self::generate_chain(&mut output, &rules, "INPUT");
+        Self::generate_chain(&mut output, &rules, "INPUT", &addr_sets);
 
         output.push_str("    }\n\n");
 
@@ -80,7 +99,7 @@ impl FirewallGenerator {
 
         Self::generate_port_forward_accepts(&mut output, &net_config, &port_forwards);
 
-        Self::generate_chain(&mut output, &rules, "FORWARD");
+        Self::generate_chain(&mut output, &rules, "FORWARD", &addr_sets);
 
         output.push_str("    }\n\n");
 
@@ -89,7 +108,7 @@ impl FirewallGenerator {
         output.push_str("        type filter hook output priority 0;\n");
         output.push_str("        policy accept;\n\n");
 
-        Self::generate_chain(&mut output, &rules, "OUTPUT");
+        Self::generate_chain(&mut output, &rules, "OUTPUT", &addr_sets);
 
         output.push_str("    }\n");
 
@@ -98,6 +117,130 @@ impl FirewallGenerator {
         Self::generate_nat_table(&mut output, &net_config, &port_forwards);
 
         Ok(output)
+    }
+
+    /// `@office_lan` -> Some("office_lan"). Anything else is a literal address.
+    fn reference_name(value: &str) -> Option<&str> {
+        value.trim().strip_prefix(REF_PREFIX)
+    }
+
+    fn set_key(name: &str) -> String {
+        name.to_ascii_lowercase()
+    }
+
+    /// Looks up every object or group that an enabled rule refers to and turns
+    /// each one into an `AddrSet`. Unused objects and groups are never loaded
+    /// into the ruleset. A reference that cannot be resolved is left out here,
+    /// and the rule using it is skipped later with a warning.
+    async fn load_address_sets(
+        pool: &SqlitePool,
+        rules: &[FirewallRule],
+    ) -> Result<AddrSets, String> {
+        let mut wanted: BTreeSet<String> = BTreeSet::new();
+
+        for rule in rules.iter().filter(|r| r.enabled) {
+            for value in [&rule.src_ip, &rule.dst_ip].into_iter().flatten() {
+                if let Some(name) = Self::reference_name(value) {
+                    wanted.insert(Self::set_key(name));
+                }
+            }
+        }
+
+        let mut sets = AddrSets::new();
+
+        if wanted.is_empty() {
+            return Ok(sets);
+        }
+
+        let objects = AddressRepository::list_objects(pool)
+            .await
+            .map_err(|e| e.to_string())?;
+
+        let groups = AddressRepository::list_groups(pool)
+            .await
+            .map_err(|e| e.to_string())?;
+
+        let objects_by_key: BTreeMap<String, _> = objects
+            .iter()
+            .map(|o| (Self::set_key(&o.name), o))
+            .collect();
+
+        for key in wanted {
+            let (family, mut elements): (&str, Vec<String>) =
+                if let Some(object) = objects_by_key.get(&key) {
+                    (object.family.as_str(), vec![object.value.clone()])
+                } else if let Some(group) = groups.iter().find(|g| Self::set_key(&g.name) == key) {
+                    let members: Vec<String> = group
+                        .members
+                        .iter()
+                        .filter_map(|m| objects_by_key.get(&Self::set_key(m)))
+                        .map(|o| o.value.clone())
+                        .collect();
+
+                    (group.family.as_str(), members)
+                } else {
+                    continue;
+                };
+
+            let is_v6 = match family {
+                "ipv4" => false,
+                "ipv6" => true,
+                _ => continue,
+            };
+
+            if elements.is_empty() {
+                continue;
+            }
+
+            elements.sort();
+            elements.dedup();
+
+            sets.insert(
+                key.clone(),
+                AddrSet {
+                    set_name: format!("addr_{}", key),
+                    is_v6,
+                    elements,
+                },
+            );
+        }
+
+        Ok(sets)
+    }
+
+    /// One named set per referenced object or group. `interval` lets a set hold
+    /// subnets and ranges, and `auto-merge` stops nftables from rejecting the
+    /// whole ruleset when two members overlap (for example a host that is also
+    /// inside a subnet in the same group).
+    fn generate_address_sets(output: &mut String, sets: &AddrSets) {
+        for set in sets.values() {
+            output.push_str(&format!("    set {} {{\n", set.set_name));
+            output.push_str(&format!(
+                "        type {};\n",
+                if set.is_v6 { "ipv6_addr" } else { "ipv4_addr" }
+            ));
+            output.push_str("        flags interval;\n");
+            output.push_str("        auto-merge;\n");
+            output.push_str(&format!(
+                "        elements = {{ {} }}\n",
+                set.elements.join(", ")
+            ));
+            output.push_str("    }\n\n");
+        }
+    }
+
+    /// Works out how one src_ip or dst_ip value is written in a rule.
+    /// Returns (is_ipv6, text to put after `saddr` / `daddr`), or None when the
+    /// value is neither a valid literal nor a reference to a usable set.
+    fn address_match(value: &str, sets: &AddrSets) -> Option<(bool, String)> {
+        let trimmed = value.trim();
+
+        if let Some(name) = Self::reference_name(trimmed) {
+            let set = sets.get(&Self::set_key(name))?;
+            return Some((set.is_v6, format!("@{}", set.set_name)));
+        }
+
+        Self::ip_family(trimmed).map(|is_v6| (is_v6, trimmed.to_string()))
     }
 
     fn sanitize_comment(value: &str) -> String {
@@ -347,6 +490,7 @@ impl FirewallGenerator {
         output: &mut String,
         rules: &[FirewallRule],
         chain: &str,
+        sets: &AddrSets,
     ) {
         for rule in rules {
             if !rule.enabled {
@@ -382,12 +526,11 @@ impl FirewallGenerator {
                 }
             }
 
-            let mut src_is_v6: Option<bool> = None;
+            let mut src_match: Option<(bool, String)> = None;
             if let Some(src) = &rule.src_ip {
-                let trimmed = src.trim();
-                if !trimmed.is_empty() {
-                    match Self::ip_family(trimmed) {
-                        Some(is_v6) => src_is_v6 = Some(is_v6),
+                if !src.trim().is_empty() {
+                    match Self::address_match(src, sets) {
+                        Some(found) => src_match = Some(found),
                         None => {
                             eprintln!(
                                 "WARNING: skipping rule '{}' (id={:?}) — invalid src_ip in database: '{}'",
@@ -399,12 +542,11 @@ impl FirewallGenerator {
                 }
             }
 
-            let mut dst_is_v6: Option<bool> = None;
+            let mut dst_match: Option<(bool, String)> = None;
             if let Some(dst) = &rule.dst_ip {
-                let trimmed = dst.trim();
-                if !trimmed.is_empty() {
-                    match Self::ip_family(trimmed) {
-                        Some(is_v6) => dst_is_v6 = Some(is_v6),
+                if !dst.trim().is_empty() {
+                    match Self::address_match(dst, sets) {
+                        Some(found) => dst_match = Some(found),
                         None => {
                             eprintln!(
                                 "WARNING: skipping rule '{}' (id={:?}) — invalid dst_ip in database: '{}'",
@@ -415,6 +557,9 @@ impl FirewallGenerator {
                     }
                 }
             }
+
+            let src_is_v6 = src_match.as_ref().map(|(v6, _)| *v6);
+            let dst_is_v6 = dst_match.as_ref().map(|(v6, _)| *v6);
 
             if let (Some(s), Some(d)) = (src_is_v6, dst_is_v6) {
                 if s != d {
@@ -428,20 +573,14 @@ impl FirewallGenerator {
 
             let rule_is_v6 = src_is_v6.or(dst_is_v6);
 
-            if let Some(src) = &rule.src_ip {
-                let trimmed = src.trim();
-                if !trimmed.is_empty() {
-                    let keyword = if src_is_v6 == Some(true) { "ip6" } else { "ip" };
-                    line.push_str(&format!("{} saddr {} ", keyword, trimmed));
-                }
+            if let Some((is_v6, text)) = &src_match {
+                let keyword = if *is_v6 { "ip6" } else { "ip" };
+                line.push_str(&format!("{} saddr {} ", keyword, text));
             }
 
-            if let Some(dst) = &rule.dst_ip {
-                let trimmed = dst.trim();
-                if !trimmed.is_empty() {
-                    let keyword = if dst_is_v6 == Some(true) { "ip6" } else { "ip" };
-                    line.push_str(&format!("{} daddr {} ", keyword, trimmed));
-                }
+            if let Some((is_v6, text)) = &dst_match {
+                let keyword = if *is_v6 { "ip6" } else { "ip" };
+                line.push_str(&format!("{} daddr {} ", keyword, text));
             }
 
             match rule.protocol.to_lowercase().as_str() {
@@ -556,5 +695,412 @@ impl FirewallGenerator {
             return Some(matches!(addr, std::net::IpAddr::V6(_)));
         }
         None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::database::init::initialize_database;
+    use sqlx::sqlite::SqlitePoolOptions;
+
+    async fn memory_pool() -> SqlitePool {
+        // One connection, otherwise every connection would get its own empty in-memory database.
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+
+        initialize_database(&pool).await.unwrap();
+        pool
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn add_rule(
+        pool: &SqlitePool,
+        name: &str,
+        chain: &str,
+        action: &str,
+        protocol: &str,
+        src: Option<&str>,
+        dst: Option<&str>,
+        dst_port: Option<i32>,
+        extra: (bool, Option<&str>, Option<&str>, bool),
+    ) {
+        let (port_any, iface, rate, log) = extra;
+
+        sqlx::query(
+            r#"
+            INSERT INTO firewall_rules
+                (name, chain_name, action, protocol, src_ip, dst_ip, dst_port,
+                 port_any, interface_name, rate_limit, log_enabled)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            "#,
+        )
+        .bind(name)
+        .bind(chain)
+        .bind(action)
+        .bind(protocol)
+        .bind(src)
+        .bind(dst)
+        .bind(dst_port)
+        .bind(port_any)
+        .bind(iface)
+        .bind(rate)
+        .bind(log)
+        .execute(pool)
+        .await
+        .unwrap();
+    }
+
+    /// The management-API line depends on the IQSOFT_BIND environment variable
+    /// of whoever runs the tests, so it is left out of the comparison.
+    fn without_environment_lines(text: &str) -> String {
+        text.lines()
+            .filter(|l| !l.contains("# management API"))
+            .map(|l| format!("{}\n", l))
+            .collect()
+    }
+
+    /// A mixed ruleset that touches every branch of the rule generator.
+    async fn baseline_pool() -> SqlitePool {
+        let pool = memory_pool().await;
+        let none = (false, None, None, false);
+
+        add_rule(&pool, "ssh from office", "INPUT", "accept", "tcp",
+            Some("192.168.1.0/24"), None, Some(22), (false, Some("eth1"), None, true)).await;
+        add_rule(&pool, "web to server", "FORWARD", "accept", "tcp",
+            None, Some("10.0.0.10"), Some(443), none).await;
+        add_rule(&pool, "dns v6", "FORWARD", "accept", "udp",
+            Some("2001:db8::/32"), Some("2001:db8:1::53"), Some(53), none).await;
+        add_rule(&pool, "block host", "FORWARD", "drop", "any",
+            Some("10.9.9.9"), None, None, none).await;
+        add_rule(&pool, "ping limit", "INPUT", "accept", "icmp",
+            None, None, None, (false, None, Some("5/second"), false)).await;
+        add_rule(&pool, "all udp out", "OUTPUT", "accept", "udp",
+            None, None, None, (true, Some("eth0"), None, false)).await;
+        add_rule(&pool, "reject telnet", "FORWARD", "reject", "tcp",
+            Some("10.1.0.0/16"), Some("10.2.0.0/16"), Some(23), (false, None, Some("1/minute"), true)).await;
+
+        // Rules the generator must skip, and one that is switched off.
+        add_rule(&pool, "mixed versions", "FORWARD", "accept", "any",
+            Some("10.0.0.1"), Some("2001:db8::1"), None, none).await;
+        add_rule(&pool, "bad source", "FORWARD", "accept", "any",
+            Some("not-an-ip"), None, None, none).await;
+        sqlx::query("UPDATE firewall_rules SET enabled = 0 WHERE name = 'block host'")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        pool
+    }
+
+    const BASELINE: &str = r#"flush ruleset;
+
+table inet filter {
+
+    chain input {
+        type filter hook input priority 0;
+        policy drop;
+
+        iif lo accept
+        ct state invalid drop
+        ct state established,related accept
+
+        meta l4proto icmpv6 icmpv6 type { destination-unreachable, packet-too-big, time-exceeded, parameter-problem } accept
+        meta l4proto icmpv6 icmpv6 type { nd-neighbor-solicit, nd-neighbor-advert, nd-router-advert } ip6 hoplimit 255 accept
+        iifname "eth1" ip protocol icmp icmp type echo-request limit rate 10/second accept
+        iifname "eth1" meta l4proto icmpv6 icmpv6 type echo-request limit rate 10/second accept
+
+        iifname "eth1" ip saddr 192.168.1.0/24 tcp dport 22 counter log prefix "iqsoft-rule-1: " accept comment "iqsoft-rule-1"
+        ip protocol icmp limit rate 5/second counter accept comment "iqsoft-rule-5"
+
+    }
+
+    chain forward {
+        type filter hook forward priority 0;
+        policy drop;
+
+        ct state invalid drop
+        ct state established,related accept
+
+
+        ip daddr 10.0.0.10 tcp dport 443 counter accept comment "iqsoft-rule-2"
+        ip6 saddr 2001:db8::/32 ip6 daddr 2001:db8:1::53 udp dport 53 counter accept comment "iqsoft-rule-3"
+        ip saddr 10.1.0.0/16 ip daddr 10.2.0.0/16 tcp dport 23 limit rate over 1/minute counter log prefix "iqsoft-rule-7: " reject comment "iqsoft-rule-7"
+
+    }
+
+    chain output {
+        type filter hook output priority 0;
+        policy accept;
+
+        oifname "eth0" udp counter accept comment "iqsoft-rule-6" # all udp out: all ports intentionally allowed
+
+    }
+}
+
+table ip nat {
+
+    chain prerouting {
+        type nat hook prerouting priority -100;
+        policy accept;
+
+    }
+
+    chain postrouting {
+        type nat hook postrouting priority 100;
+        policy accept;
+
+        oifname "eth0" masquerade
+    }
+}
+"#;
+
+    /// Locks down the exact nftables text produced for existing (non-object)
+    /// rules. If this fails after a generator change, the change altered the
+    /// behavior of rules that were already working.
+    #[tokio::test]
+    async fn baseline_output_is_unchanged() {
+        let pool = baseline_pool().await;
+        let text = FirewallGenerator::generate(&pool).await.unwrap();
+
+        assert_eq!(without_environment_lines(&text), BASELINE);
+    }
+
+    #[tokio::test]
+    async fn generation_is_deterministic() {
+        let pool = baseline_pool().await;
+
+        let first = FirewallGenerator::generate(&pool).await.unwrap();
+        let second = FirewallGenerator::generate(&pool).await.unwrap();
+
+        assert_eq!(first, second);
+    }
+
+    // ------------------------------------------------------------------
+    // Address objects and groups
+    // ------------------------------------------------------------------
+
+    use crate::models::address::{AddressGroup, AddressObject};
+    use crate::services::address_service::AddressService;
+
+    async fn add_object(pool: &SqlitePool, name: &str, kind: &str, value: &str) {
+        AddressService::add_object(
+            pool,
+            AddressObject {
+                id: None,
+                name: name.into(),
+                kind: kind.into(),
+                value: value.into(),
+                family: String::new(),
+                comment: None,
+            },
+        )
+        .await
+        .unwrap();
+    }
+
+    async fn add_group(pool: &SqlitePool, name: &str, members: &[&str]) {
+        AddressService::add_group(
+            pool,
+            AddressGroup {
+                id: None,
+                name: name.into(),
+                family: String::new(),
+                comment: None,
+                members: members.iter().map(|m| m.to_string()).collect(),
+            },
+        )
+        .await
+        .unwrap();
+    }
+
+    async fn rule_with(pool: &SqlitePool, name: &str, src: Option<&str>, dst: Option<&str>) {
+        add_rule(pool, name, "FORWARD", "accept", "tcp", src, dst, Some(443), (false, None, None, false)).await;
+    }
+
+    async fn generate_text(pool: &SqlitePool) -> String {
+        without_environment_lines(&FirewallGenerator::generate(pool).await.unwrap())
+    }
+
+    /// Runs the ruleset through the real `nft --check` when it can.
+    /// Skipped when nft is missing or when we are not allowed to talk to the kernel.
+    fn nft_check(ruleset: &str) {
+        use std::io::Write;
+        use std::process::{Command, Stdio};
+
+        let Ok(mut child) = Command::new("nft")
+            .args(["--check", "--file", "-"])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+        else {
+            return;
+        };
+
+        child.stdin.take().unwrap().write_all(ruleset.as_bytes()).unwrap();
+        let out = child.wait_with_output().unwrap();
+        let err = String::from_utf8_lossy(&out.stderr);
+
+        if err.contains("Operation not permitted") {
+            return;
+        }
+
+        assert!(out.status.success(), "nft --check failed:\n{}\n{}", err, ruleset);
+    }
+
+    #[tokio::test]
+    async fn unused_objects_and_groups_do_not_change_the_output() {
+        let plain = baseline_pool().await;
+        let with_objects = baseline_pool().await;
+
+        add_object(&with_objects, "web1", "host", "10.0.0.1").await;
+        add_object(&with_objects, "lan", "subnet", "192.168.1.0/24").await;
+        add_object(&with_objects, "v6net", "subnet", "2001:db8::/32").await;
+        add_group(&with_objects, "servers", &["web1"]).await;
+
+        assert_eq!(generate_text(&plain).await, generate_text(&with_objects).await);
+    }
+
+    #[tokio::test]
+    async fn object_reference_becomes_a_set_and_a_match() {
+        let pool = memory_pool().await;
+        add_object(&pool, "web1", "host", "10.0.0.1").await;
+        rule_with(&pool, "to web", None, Some("@web1")).await;
+
+        let text = generate_text(&pool).await;
+
+        assert!(text.contains(
+            "    set addr_web1 {\n        type ipv4_addr;\n        flags interval;\n        auto-merge;\n        elements = { 10.0.0.1 }\n    }\n"
+        ));
+        assert!(text.contains("ip daddr @addr_web1 tcp dport 443 counter accept comment \"iqsoft-rule-1\""));
+        nft_check(&text);
+    }
+
+    #[tokio::test]
+    async fn group_reference_holds_every_member_of_every_kind() {
+        let pool = memory_pool().await;
+        add_object(&pool, "a", "host", "10.0.0.5").await;
+        add_object(&pool, "b", "subnet", "10.1.0.0/16").await;
+        add_object(&pool, "c", "range", "10.2.0.10-10.2.0.20").await;
+        add_group(&pool, "office", &["a", "b", "c"]).await;
+        rule_with(&pool, "from office", Some("@office"), None).await;
+
+        let text = generate_text(&pool).await;
+
+        assert!(text.contains("elements = { 10.0.0.5, 10.1.0.0/16, 10.2.0.10-10.2.0.20 }"));
+        assert!(text.contains("ip saddr @addr_office tcp dport 443"));
+        nft_check(&text);
+    }
+
+    #[tokio::test]
+    async fn ipv6_group_uses_ip6_and_an_ipv6_set() {
+        let pool = memory_pool().await;
+        add_object(&pool, "n1", "subnet", "2001:db8::/32").await;
+        add_object(&pool, "n2", "host", "fd00::1").await;
+        add_group(&pool, "v6grp", &["n1", "n2"]).await;
+        rule_with(&pool, "v6 rule", Some("@v6grp"), Some("2001:db8:1::53")).await;
+
+        let text = generate_text(&pool).await;
+
+        assert!(text.contains("type ipv6_addr;"));
+        assert!(text.contains("ip6 saddr @addr_v6grp ip6 daddr 2001:db8:1::53 tcp dport 443"));
+        nft_check(&text);
+    }
+
+    #[tokio::test]
+    async fn overlapping_members_still_pass_nft_check() {
+        let pool = memory_pool().await;
+        add_object(&pool, "host_in_net", "host", "10.0.0.5").await;
+        add_object(&pool, "whole_net", "subnet", "10.0.0.0/24").await;
+        add_object(&pool, "part_range", "range", "10.0.0.10-10.0.0.20").await;
+        add_group(&pool, "overlap", &["host_in_net", "whole_net", "part_range"]).await;
+        rule_with(&pool, "overlap rule", Some("@overlap"), None).await;
+
+        nft_check(&generate_text(&pool).await);
+    }
+
+    #[tokio::test]
+    async fn only_sets_used_by_enabled_rules_are_emitted() {
+        let pool = memory_pool().await;
+        add_object(&pool, "used", "host", "10.0.0.1").await;
+        add_object(&pool, "idle", "host", "10.0.0.2").await;
+        add_object(&pool, "off", "host", "10.0.0.3").await;
+        rule_with(&pool, "uses", Some("@used"), None).await;
+        rule_with(&pool, "disabled one", Some("@off"), None).await;
+        sqlx::query("UPDATE firewall_rules SET enabled = 0 WHERE name = 'disabled one'")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let text = generate_text(&pool).await;
+
+        assert!(text.contains("set addr_used {"));
+        assert!(!text.contains("addr_idle"));
+        assert!(!text.contains("addr_off"));
+    }
+
+    #[tokio::test]
+    async fn references_are_case_insensitive_and_share_one_set() {
+        let pool = memory_pool().await;
+        add_object(&pool, "Web1", "host", "10.0.0.1").await;
+        rule_with(&pool, "one", Some("@WEB1"), None).await;
+        rule_with(&pool, "two", None, Some("@web1")).await;
+
+        let text = generate_text(&pool).await;
+
+        assert_eq!(text.matches("set addr_web1 {").count(), 1);
+        assert!(text.contains("ip saddr @addr_web1 "));
+        assert!(text.contains("ip daddr @addr_web1 "));
+        nft_check(&text);
+    }
+
+    #[tokio::test]
+    async fn rules_with_bad_references_are_skipped_not_fatal() {
+        let pool = memory_pool().await;
+        add_object(&pool, "web1", "host", "10.0.0.1").await;
+        add_object(&pool, "v6host", "host", "2001:db8::1").await;
+        add_group(&pool, "empty_grp", &[]).await;
+
+        rule_with(&pool, "unknown", Some("@nope"), None).await;
+        rule_with(&pool, "empty group", Some("@empty_grp"), None).await;
+        rule_with(&pool, "mixed versions", Some("@web1"), Some("@v6host")).await;
+        rule_with(&pool, "mixed with literal", Some("@web1"), Some("2001:db8::9")).await;
+        rule_with(&pool, "injection", Some("@web1; flush ruleset"), None).await;
+        rule_with(&pool, "bare at", Some("@"), None).await;
+        rule_with(&pool, "good", Some("@web1"), None).await;
+
+        let text = generate_text(&pool).await;
+
+        assert_eq!(text.matches("saddr @addr_web1 ").count(), 1);
+        assert!(text.contains("comment \"iqsoft-rule-7\""));
+        for skipped in 1..=6 {
+            assert!(!text.contains(&format!("comment \"iqsoft-rule-{}\"", skipped)));
+        }
+        assert!(!text.contains("addr_empty_grp"));
+        assert!(!text.contains("addr_nope"));
+        assert_eq!(text.matches("flush ruleset").count(), 1);
+        nft_check(&text);
+    }
+
+    #[tokio::test]
+    async fn output_with_objects_is_deterministic() {
+        let pool = memory_pool().await;
+        add_object(&pool, "z1", "host", "10.0.0.9").await;
+        add_object(&pool, "a1", "host", "10.0.0.1").await;
+        add_group(&pool, "grp", &["z1", "a1"]).await;
+        rule_with(&pool, "r1", Some("@grp"), Some("@z1")).await;
+        rule_with(&pool, "r2", Some("@a1"), None).await;
+
+        let first = generate_text(&pool).await;
+        let second = generate_text(&pool).await;
+
+        assert_eq!(first, second);
+        // sets come out in name order, elements in sorted order
+        assert!(first.find("set addr_a1 ").unwrap() < first.find("set addr_grp ").unwrap());
+        assert!(first.contains("elements = { 10.0.0.1, 10.0.0.9 }"));
     }
 }

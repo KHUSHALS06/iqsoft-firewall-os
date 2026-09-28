@@ -296,6 +296,69 @@ impl AddressRepository {
     }
 
     // ------------------------------------------------------------------
+    // Snapshot restore
+    // ------------------------------------------------------------------
+
+    /// Replaces every object, group and membership with the given lists, all in
+    /// one transaction: if anything fails, the existing data is left untouched.
+    ///
+    /// Used to restore a snapshot on rollback. Ids are kept when the snapshot
+    /// has them. Group members are object names, so every member must appear in
+    /// `objects`. Nothing is re-validated here, the database constraints
+    /// (kind, family, unique names) are the safety net.
+    pub async fn replace_all(
+        pool: &SqlitePool,
+        objects: &[AddressObject],
+        groups: &[AddressGroup],
+    ) -> Result<(), sqlx::Error> {
+        let mut tx = pool.begin().await?;
+
+        // Memberships first, otherwise the RESTRICT on objects would refuse.
+        sqlx::query("DELETE FROM address_group_members")
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query("DELETE FROM address_groups")
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query("DELETE FROM address_objects")
+            .execute(&mut *tx)
+            .await?;
+
+        for object in objects {
+            sqlx::query(
+                r#"
+                INSERT INTO address_objects (id, name, kind, value, family, comment)
+                VALUES (?, ?, ?, ?, ?, ?)
+                "#,
+            )
+            .bind(object.id)
+            .bind(&object.name)
+            .bind(&object.kind)
+            .bind(&object.value)
+            .bind(&object.family)
+            .bind(&object.comment)
+            .execute(&mut *tx)
+            .await?;
+        }
+
+        for group in groups {
+            let result =
+                sqlx::query("INSERT INTO address_groups (id, name, comment) VALUES (?, ?, ?)")
+                    .bind(group.id)
+                    .bind(&group.name)
+                    .bind(&group.comment)
+                    .execute(&mut *tx)
+                    .await?;
+
+            Self::insert_members(&mut tx, result.last_insert_rowid(), &group.members).await?;
+        }
+
+        tx.commit().await?;
+
+        Ok(())
+    }
+
+    // ------------------------------------------------------------------
     // Names and usage
     // ------------------------------------------------------------------
 
@@ -622,5 +685,114 @@ mod tests {
     #[test]
     fn reference_format() {
         assert_eq!(reference("web"), "@web");
+    }
+
+    // ---------------- snapshot restore ----------------
+
+    async fn snapshot(pool: &SqlitePool) -> (Vec<AddressObject>, Vec<AddressGroup>) {
+        (
+            AddressRepository::list_objects(pool).await.unwrap(),
+            AddressRepository::list_groups(pool).await.unwrap(),
+        )
+    }
+
+    async fn seed(pool: &SqlitePool) {
+        AddressRepository::add_object(pool, &object("web1", "host", "10.0.0.1", "ipv4")).await.unwrap();
+        AddressRepository::add_object(pool, &object("lan", "subnet", "192.168.1.0/24", "ipv4")).await.unwrap();
+        AddressRepository::add_group(pool, &group("servers", &["web1", "lan"])).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn replace_all_restores_a_snapshot_exactly() {
+        let pool = memory_pool().await;
+        seed(&pool).await;
+
+        let (objects, groups) = snapshot(&pool).await;
+
+        // change everything after the snapshot was taken
+        let web1 = AddressRepository::find_object_by_name(&pool, "web1").await.unwrap().unwrap();
+        AddressRepository::update_object(&pool, web1.id.unwrap(), &object("web1", "host", "10.9.9.9", "ipv4")).await.unwrap();
+        AddressRepository::add_object(&pool, &object("extra", "host", "10.0.0.7", "ipv4")).await.unwrap();
+
+        AddressRepository::replace_all(&pool, &objects, &groups).await.unwrap();
+
+        let (objects_after, groups_after) = snapshot(&pool).await;
+
+        assert_eq!(objects_after.len(), 2);
+        assert_eq!(groups_after.len(), 1);
+        for (before, after) in objects.iter().zip(&objects_after) {
+            assert_eq!(before.id, after.id);
+            assert_eq!(before.name, after.name);
+            assert_eq!(before.value, after.value);
+        }
+        assert_eq!(groups[0].id, groups_after[0].id);
+        assert_eq!(groups_after[0].members, groups[0].members);
+    }
+
+    #[tokio::test]
+    async fn replace_all_with_nothing_clears_everything() {
+        let pool = memory_pool().await;
+        seed(&pool).await;
+
+        AddressRepository::replace_all(&pool, &[], &[]).await.unwrap();
+
+        let (objects, groups) = snapshot(&pool).await;
+        assert!(objects.is_empty() && groups.is_empty());
+    }
+
+    #[tokio::test]
+    async fn replace_all_works_on_an_empty_database() {
+        let source = memory_pool().await;
+        seed(&source).await;
+        let (objects, groups) = snapshot(&source).await;
+
+        let target = memory_pool().await;
+        AddressRepository::replace_all(&target, &objects, &groups).await.unwrap();
+
+        let (restored_objects, restored_groups) = snapshot(&target).await;
+        assert_eq!(restored_objects.len(), 2);
+        assert_eq!(restored_groups[0].members, vec!["lan".to_string(), "web1".to_string()]);
+    }
+
+    #[tokio::test]
+    async fn failed_replace_all_keeps_the_existing_data() {
+        let pool = memory_pool().await;
+        seed(&pool).await;
+        let before = snapshot(&pool).await;
+
+        // a group that names an object which is not in the snapshot
+        let bad_objects = vec![object("only", "host", "10.5.5.5", "ipv4")];
+        let bad_groups = vec![group("broken", &["ghost"])];
+        assert!(AddressRepository::replace_all(&pool, &bad_objects, &bad_groups).await.is_err());
+
+        // an object the database constraints refuse (bad family)
+        let bad_family = vec![object("weird", "host", "10.5.5.5", "ipv9")];
+        assert!(AddressRepository::replace_all(&pool, &bad_family, &[]).await.is_err());
+
+        // two objects with the same name
+        let dupes = vec![
+            object("same", "host", "10.1.1.1", "ipv4"),
+            object("SAME", "host", "10.2.2.2", "ipv4"),
+        ];
+        assert!(AddressRepository::replace_all(&pool, &dupes, &[]).await.is_err());
+
+        let after = snapshot(&pool).await;
+        assert_eq!(before.0.len(), after.0.len());
+        assert_eq!(before.1.len(), after.1.len());
+        assert_eq!(before.0[0].name, after.0[0].name);
+        assert_eq!(before.1[0].members, after.1[0].members);
+    }
+
+    #[tokio::test]
+    async fn new_ids_continue_after_a_restore() {
+        let pool = memory_pool().await;
+        seed(&pool).await;
+        let (objects, groups) = snapshot(&pool).await;
+
+        AddressRepository::replace_all(&pool, &objects, &groups).await.unwrap();
+
+        let next = AddressRepository::add_object(&pool, &object("later", "host", "10.0.0.99", "ipv4")).await.unwrap();
+        let highest = objects.iter().filter_map(|o| o.id).max().unwrap();
+        assert!(next > highest);
     }
 }
