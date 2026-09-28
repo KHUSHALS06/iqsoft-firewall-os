@@ -302,6 +302,23 @@ pub async fn initialize_database(pool: &SqlitePool) -> Result<(), sqlx::Error> {
 
     sqlx::query(
         r#"
+        CREATE TABLE IF NOT EXISTS routes (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            name            TEXT NOT NULL,
+            enabled         INTEGER NOT NULL DEFAULT 1,
+            destination     TEXT NOT NULL,
+            gateway         TEXT,
+            interface_name  TEXT,
+            metric          INTEGER NOT NULL DEFAULT 100,
+            comment         TEXT
+        );
+        "#,
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        r#"
         CREATE TABLE IF NOT EXISTS users (
             id             INTEGER PRIMARY KEY AUTOINCREMENT,
             username       TEXT NOT NULL UNIQUE,

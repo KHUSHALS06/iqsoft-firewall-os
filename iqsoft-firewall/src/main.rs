@@ -7,6 +7,7 @@ mod firewall;
 mod models;
 mod monitor;
 mod repository;
+mod routing;
 mod services;
 
 use axum::{
@@ -27,6 +28,7 @@ use api::{
     monitor as monitor_api,
     network_config as network_config_api,
     port_forward as port_forward_api,
+    route as route_api,
 };
 use app_state::AppState;
 use database::{
@@ -34,6 +36,7 @@ use database::{
     init::initialize_database,
 };
 use firewall::{commit::FirewallCommit, safe_commit::SafeCommit};
+use routing::commit::RouteCommit;
 use services::{auth_service::AuthService, login_throttle::LoginThrottle};
 
 #[tokio::main]
@@ -61,6 +64,14 @@ async fn main() {
         Err(e) => {
             eprintln!("ERROR: could not restore the saved firewall configuration: {}", e);
             eprintln!("ERROR: the firewall may be running with an empty ruleset until a commit succeeds");
+        }
+    }
+
+    match RouteCommit::restore_on_boot(&commit_lock).await {
+        Ok(message) => println!("{}", message),
+        Err(e) => {
+            eprintln!("ERROR: could not restore the saved routing configuration: {}", e);
+            eprintln!("ERROR: static routes may be missing until a routing commit succeeds");
         }
     }
 
@@ -190,6 +201,28 @@ async fn main() {
             "/api/port-forwards/{id}",
             put(port_forward_api::update_rule)
                 .delete(port_forward_api::delete_rule),
+        )
+        .route(
+            "/api/routes",
+            get(route_api::list_routes)
+                .post(route_api::add_route),
+        )
+        .route(
+            "/api/routes/{id}",
+            put(route_api::update_route)
+                .delete(route_api::delete_route),
+        )
+        .route(
+            "/api/routes/generate",
+            get(route_api::generate_script),
+        )
+        .route(
+            "/api/routes/commit",
+            post(route_api::commit),
+        )
+        .route(
+            "/api/routes/rollback",
+            post(route_api::rollback),
         )
         .route(
             "/api/address-objects",
