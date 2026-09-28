@@ -30,7 +30,7 @@ use database::{
     connection::create_pool,
     init::initialize_database,
 };
-use firewall::safe_commit::SafeCommit;
+use firewall::{commit::FirewallCommit, safe_commit::SafeCommit};
 use services::{auth_service::AuthService, login_throttle::LoginThrottle};
 
 #[tokio::main]
@@ -51,11 +51,28 @@ async fn main() {
         .await
         .expect("Failed to initialize admin user");
 
+    let commit_lock = std::sync::Arc::new(tokio::sync::Mutex::new(()));
+
+    match FirewallCommit::restore_on_boot(&commit_lock).await {
+        Ok(message) => println!("{}", message),
+        Err(e) => {
+            eprintln!("ERROR: could not restore the saved firewall configuration: {}", e);
+            eprintln!("ERROR: the firewall may be running with an empty ruleset until a commit succeeds");
+        }
+    }
+
+    let safe_commit = SafeCommit::new();
+
+    match safe_commit.recover_on_boot(&db, &commit_lock).await {
+        Ok(message) => println!("{}", message),
+        Err(e) => eprintln!("ERROR: {}", e),
+    }
+
     let state = AppState {
         db,
-        commit_lock: std::sync::Arc::new(tokio::sync::Mutex::new(())),
+        commit_lock,
         login_throttle: LoginThrottle::new(),
-        safe_commit: SafeCommit::new(),
+        safe_commit,
     };
 
     let public = Router::new()

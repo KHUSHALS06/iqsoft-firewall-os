@@ -122,6 +122,43 @@ impl FirewallCommit {
         Ok(message)
     }
 
+    pub async fn restore_on_boot(lock: &Arc<Mutex<()>>) -> Result<String, String> {
+        let _guard = lock.lock().await;
+
+        if !Path::new(CURRENT_PATH).exists() {
+            return Ok("No saved firewall configuration found, nothing was restored".into());
+        }
+
+        let check = Command::new("nft")
+            .arg("--check")
+            .arg("-f")
+            .arg(CURRENT_PATH)
+            .output()
+            .map_err(|e| e.to_string())?;
+
+        if !check.status.success() {
+            return Err(format!(
+                "Saved firewall configuration failed validation, nothing was applied: {}",
+                String::from_utf8_lossy(&check.stderr)
+            ));
+        }
+
+        let apply = Command::new("nft")
+            .arg("-f")
+            .arg(CURRENT_PATH)
+            .output()
+            .map_err(|e| e.to_string())?;
+
+        if !apply.status.success() {
+            return Err(format!(
+                "Saved firewall configuration passed validation but failed to apply: {}",
+                String::from_utf8_lossy(&apply.stderr)
+            ));
+        }
+
+        Ok("Restored saved firewall configuration".into())
+    }
+
     fn persist_ip_forward_sysctl(value: &str) -> Result<(), String> {
         let contents = format!(
             "# Managed by iqsoft-firewall — overwritten on every commit, do not edit by hand.\n\

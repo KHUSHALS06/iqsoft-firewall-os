@@ -158,6 +158,18 @@ pub async fn initialize_database(pool: &SqlitePool) -> Result<(), sqlx::Error> {
         println!("✓ Added port_any column to firewall_rules");
     }
 
+    let has_rate_limit = rule_columns
+        .iter()
+        .any(|row| row.get::<String, _>("name") == "rate_limit");
+
+    if !has_rate_limit {
+        sqlx::query("ALTER TABLE firewall_rules ADD COLUMN rate_limit TEXT;")
+            .execute(pool)
+            .await?;
+
+        println!("✓ Added rate_limit column to firewall_rules");
+    }
+
     // Check if network_config exists
     let network_config_exists = sqlx::query(
         "SELECT name FROM sqlite_master WHERE type='table' AND name='network_config';",

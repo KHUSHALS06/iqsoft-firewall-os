@@ -1,4 +1,4 @@
-use crate::models::firewall_rule::FirewallRule;
+use crate::models::firewall_rule::{normalize_rate_limit, FirewallRule};
 use crate::repository::firewall_repository::FirewallRepository;
 use ipnet::IpNet;
 use sqlx::SqlitePool;
@@ -42,6 +42,10 @@ impl FirewallService {
         if rule.name.trim().is_empty() {
             return Err("Rule name cannot be empty".into());
         }
+
+        if rule.name.chars().any(|c| c.is_control()) {
+            return Err("Rule name cannot contain control characters or line breaks".into());
+        }
         match rule.action.as_str() {
             "accept" | "drop" | "reject" => {}
             _ => return Err("Invalid action".into()),
@@ -56,6 +60,21 @@ impl FirewallService {
         }
         if rule.priority < 0 {
             return Err("Priority must be >= 0".into());
+        }
+
+        if let Some(iface) = &rule.interface_name {
+            Self::validate_interface_name(iface)?;
+        }
+
+        if let Some(rate) = &rule.rate_limit {
+            let trimmed = rate.trim();
+
+            if !trimmed.is_empty() && normalize_rate_limit(trimmed).is_none() {
+                return Err(format!(
+                    "Invalid rate limit '{}': use a format like 10/second, 60/minute, 100/hour or 1000/day",
+                    trimmed
+                ));
+            }
         }
         if let Some(src_ip) = &rule.src_ip {
             Self::validate_ip_or_cidr(src_ip, "Source IP")?;
@@ -110,6 +129,33 @@ impl FirewallService {
             }
             _ => {}
         }
+        Ok(())
+    }
+
+    fn validate_interface_name(value: &str) -> Result<(), String> {
+        let trimmed = value.trim();
+
+        if trimmed.is_empty() {
+            return Ok(());
+        }
+
+        if trimmed.len() > 15 {
+            return Err(format!(
+                "Interface '{}' is too long for a Linux interface name",
+                trimmed
+            ));
+        }
+
+        if !trimmed
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.'))
+        {
+            return Err(format!(
+                "Interface '{}' contains invalid characters (allowed: letters, digits, _ - .)",
+                trimmed
+            ));
+        }
+
         Ok(())
     }
 

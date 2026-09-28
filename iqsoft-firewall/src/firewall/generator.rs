@@ -1,9 +1,14 @@
 use crate::{
     models::{
-        firewall_rule::{normalize_rate_limit, FirewallRule}, network_config::NetworkConfig,
+        dhcp::DhcpConfig,
+        dns::DnsConfig,
+        firewall_rule::{normalize_rate_limit, FirewallRule},
+        network_config::NetworkConfig,
         port_forward::PortForwardRule,
     },
     repository::{
+        dhcp_repository::DhcpRepository,
+        dns_repository::DnsRepository,
         firewall_repository::FirewallRepository,
         network_config_repository::NetworkConfigRepository,
         port_forward_repository::PortForwardRepository,
@@ -12,7 +17,7 @@ use crate::{
 
 use ipnet::IpNet;
 use sqlx::SqlitePool;
-use std::net::Ipv4Addr;
+use std::net::{Ipv4Addr, SocketAddr};
 
 pub struct FirewallGenerator;
 
@@ -23,6 +28,14 @@ impl FirewallGenerator {
             .map_err(|e| e.to_string())?;
 
         let net_config = NetworkConfigRepository::get(pool)
+            .await
+            .map_err(|e| e.to_string())?;
+
+        let dhcp_config = DhcpRepository::get_config(pool)
+            .await
+            .map_err(|e| e.to_string())?;
+
+        let dns_config = DnsRepository::get_config(pool)
             .await
             .map_err(|e| e.to_string())?;
 
@@ -46,7 +59,10 @@ impl FirewallGenerator {
         output.push_str("        policy drop;\n\n");
 
         output.push_str("        iif lo accept\n");
+        output.push_str("        ct state invalid drop\n");
         output.push_str("        ct state established,related accept\n\n");
+
+        Self::generate_self_protection(&mut output, &net_config, &dhcp_config, &dns_config);
 
         Self::generate_chain(&mut output, &rules, "INPUT");
 
@@ -59,6 +75,7 @@ impl FirewallGenerator {
 
         // Replies to allowed connections (including replies from a port-forwarded
         // server back to the internet) must be let through.
+        output.push_str("        ct state invalid drop\n");
         output.push_str("        ct state established,related accept\n\n");
 
         Self::generate_port_forward_accepts(&mut output, &net_config, &port_forwards);
@@ -81,6 +98,107 @@ impl FirewallGenerator {
         Self::generate_nat_table(&mut output, &net_config, &port_forwards);
 
         Ok(output)
+    }
+
+    fn sanitize_comment(value: &str) -> String {
+        value
+            .chars()
+            .map(|c| if c.is_control() { ' ' } else { c })
+            .collect()
+    }
+
+    fn is_safe_iface(name: &str) -> bool {
+        !name.is_empty()
+            && name.len() <= 15
+            && name
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.'))
+    }
+
+    fn management_port() -> Option<u16> {
+        let bind = std::env::var("IQSOFT_BIND").unwrap_or_else(|_| "127.0.0.1:3000".to_string());
+        let addr: SocketAddr = bind.parse().ok()?;
+
+        if addr.ip().is_loopback() {
+            None
+        } else {
+            Some(addr.port())
+        }
+    }
+
+    fn generate_self_protection(
+        output: &mut String,
+        net_config: &NetworkConfig,
+        dhcp_config: &DhcpConfig,
+        dns_config: &DnsConfig,
+    ) {
+        output.push_str("        meta l4proto icmpv6 icmpv6 type { destination-unreachable, packet-too-big, time-exceeded, parameter-problem } accept\n");
+        output.push_str("        meta l4proto icmpv6 icmpv6 type { nd-neighbor-solicit, nd-neighbor-advert, nd-router-advert } ip6 hoplimit 255 accept\n");
+
+        let lan = net_config.lan_interface.trim();
+
+        if Self::is_safe_iface(lan) {
+            output.push_str(&format!(
+                "        iifname \"{}\" ip protocol icmp icmp type echo-request limit rate 10/second accept\n",
+                lan
+            ));
+            output.push_str(&format!(
+                "        iifname \"{}\" meta l4proto icmpv6 icmpv6 type echo-request limit rate 10/second accept\n",
+                lan
+            ));
+
+            if let Some(port) = Self::management_port() {
+                output.push_str(&format!(
+                    "        iifname \"{}\" tcp dport {} accept # management API\n",
+                    lan, port
+                ));
+            }
+        } else {
+            eprintln!(
+                "WARNING: LAN interface name '{}' is not valid - management API and ping access from LAN will not be allowed",
+                lan
+            );
+        }
+
+        if dhcp_config.enabled {
+            let iface = dhcp_config.interface_name.trim();
+
+            if Self::is_safe_iface(iface) {
+                output.push_str(&format!(
+                    "        iifname \"{}\" udp dport 67 accept # DHCP server\n",
+                    iface
+                ));
+            } else {
+                eprintln!(
+                    "WARNING: DHCP is enabled but interface name '{}' is not valid - skipping DHCP allow rule",
+                    iface
+                );
+            }
+        }
+
+        if dns_config.enabled {
+            for iface in &dns_config.listen_interfaces {
+                let iface = iface.trim();
+
+                if Self::is_safe_iface(iface) {
+                    output.push_str(&format!(
+                        "        iifname \"{}\" udp dport 53 accept # DNS server\n",
+                        iface
+                    ));
+                    output.push_str(&format!(
+                        "        iifname \"{}\" tcp dport 53 accept # DNS server\n",
+                        iface
+                    ));
+                } else {
+                    eprintln!(
+                        "WARNING: DNS is enabled but interface name '{}' is not valid - skipping DNS allow rules",
+                        iface
+                    );
+                }
+            }
+        }
+
+        output.push('\n');
     }
 
     /// "both" expands to tcp + udp.
@@ -146,7 +264,7 @@ impl FirewallGenerator {
                     rule.internal_ip.trim(),
                     proto,
                     internal_ports,
-                    rule.name.replace('\n', " ").replace('\r', " "),
+                    Self::sanitize_comment(&rule.name),
                 ));
             }
         }
@@ -201,7 +319,7 @@ impl FirewallGenerator {
                     proto,
                     external_ports,
                     target,
-                    rule.name.replace('\n', " ").replace('\r', " "),
+                    Self::sanitize_comment(&rule.name),
                 ));
             }
         }
@@ -243,8 +361,24 @@ impl FirewallGenerator {
             let mut port_any_marker = false;
 
             if let Some(iface) = &rule.interface_name {
-                if !iface.trim().is_empty() {
-                    line.push_str(&format!("iif \"{}\" ", iface));
+                let trimmed = iface.trim();
+
+                if !trimmed.is_empty() {
+                    if !Self::is_safe_iface(trimmed) {
+                        eprintln!(
+                            "WARNING: skipping rule '{}' (id={:?}) — invalid interface_name in database: '{}'",
+                            rule.name, rule.id, iface
+                        );
+                        continue;
+                    }
+
+                    let keyword = if chain.eq_ignore_ascii_case("OUTPUT") {
+                        "oifname"
+                    } else {
+                        "iifname"
+                    };
+
+                    line.push_str(&format!("{} \"{}\" ", keyword, trimmed));
                 }
             }
 
@@ -387,7 +521,10 @@ impl FirewallGenerator {
             }
 
             if port_any_marker {
-                line.push_str(&format!(" # {}: all ports intentionally allowed", rule.name));
+                line.push_str(&format!(
+                    " # {}: all ports intentionally allowed",
+                    Self::sanitize_comment(&rule.name)
+                ));
             }
 
             output.push_str(&line);
