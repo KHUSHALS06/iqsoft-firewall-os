@@ -509,8 +509,16 @@ impl FirewallGenerator {
                 }
             }
 
+            // Count the packets and bytes that reach this rule's verdict.
+            line.push_str("counter ");
+
+            // Logging: tag every log line with the rule that produced it,
+            // so the log reader can tell which rule fired.
             if rule.log_enabled {
-                line.push_str("log ");
+                match rule.id {
+                    Some(id) => line.push_str(&format!("log prefix \"iqsoft-rule-{}: \" ", id)),
+                    None => line.push_str("log "),
+                }
             }
 
             match rule.action.to_lowercase().as_str() {
@@ -518,6 +526,11 @@ impl FirewallGenerator {
                 "drop" => line.push_str("drop"),
                 "reject" => line.push_str("reject"),
                 _ => continue,
+            }
+
+            // Tag the rule so the counters can be matched back to it.
+            if let Some(id) = rule.id {
+                line.push_str(&format!(" comment \"iqsoft-rule-{}\"", id));
             }
 
             if port_any_marker {

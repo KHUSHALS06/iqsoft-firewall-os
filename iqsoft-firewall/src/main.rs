@@ -5,6 +5,7 @@ mod dhcp;
 mod dns;
 mod firewall;
 mod models;
+mod monitor;
 mod repository;
 mod services;
 
@@ -22,6 +23,7 @@ use api::{
     dns as dns_api,
     firewall as firewall_api,
     health,
+    monitor as monitor_api,
     network_config as network_config_api,
     port_forward as port_forward_api,
 };
@@ -187,6 +189,26 @@ async fn main() {
             "/api/port-forwards/{id}",
             put(port_forward_api::update_rule)
                 .delete(port_forward_api::delete_rule),
+        )
+        .route(
+            "/api/monitor/interfaces",
+            get(monitor_api::get_interfaces),
+        )
+        .route(
+            "/api/monitor/connections",
+            get(monitor_api::get_connections),
+        )
+        .route(
+            "/api/monitor/conntrack-usage",
+            get(monitor_api::get_conntrack_usage),
+        )
+        .route(
+            "/api/monitor/rule-counters",
+            get(monitor_api::get_rule_counters),
+        )
+        .route(
+            "/api/monitor/logs",
+            get(monitor_api::get_logs),
         )
         .route_layer(middleware::from_fn_with_state(
             state.clone(),
