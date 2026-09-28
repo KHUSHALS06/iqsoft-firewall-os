@@ -328,5 +328,7 @@ pub async fn initialize_database(pool: &SqlitePool) -> Result<(), sqlx::Error> {
     .execute(pool)
     .await?;
 
+    super::address_schema::create_address_tables(pool).await?;
+
     Ok(())
 }

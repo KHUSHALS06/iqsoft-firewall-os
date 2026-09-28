@@ -1,3 +1,4 @@
+pub mod address_repository;
 pub mod auth_repository;
 pub mod dhcp_repository;
 pub mod dns_repository;

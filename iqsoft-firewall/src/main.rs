@@ -18,6 +18,7 @@ use axum_server::tls_rustls::RustlsConfig;
 use std::net::SocketAddr;
 
 use api::{
+    address as address_api,
     auth as auth_api,
     dhcp as dhcp_api,
     dns as dns_api,
@@ -189,6 +190,26 @@ async fn main() {
             "/api/port-forwards/{id}",
             put(port_forward_api::update_rule)
                 .delete(port_forward_api::delete_rule),
+        )
+        .route(
+            "/api/address-objects",
+            get(address_api::list_objects)
+                .post(address_api::add_object),
+        )
+        .route(
+            "/api/address-objects/{id}",
+            put(address_api::update_object)
+                .delete(address_api::delete_object),
+        )
+        .route(
+            "/api/address-groups",
+            get(address_api::list_groups)
+                .post(address_api::add_group),
+        )
+        .route(
+            "/api/address-groups/{id}",
+            put(address_api::update_group)
+                .delete(address_api::delete_group),
         )
         .route(
             "/api/monitor/interfaces",

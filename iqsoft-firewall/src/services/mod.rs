@@ -1,3 +1,4 @@
+pub mod address_service;
 pub mod auth_service;
 pub mod dhcp_service;
 pub mod dns_service;
