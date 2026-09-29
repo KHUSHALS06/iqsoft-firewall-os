@@ -27,6 +27,7 @@ use api::{
     health,
     monitor as monitor_api,
     network_config as network_config_api,
+    one_to_one_nat as one_to_one_nat_api,
     port_forward as port_forward_api,
     route as route_api,
 };
@@ -201,6 +202,16 @@ async fn main() {
             "/api/port-forwards/{id}",
             put(port_forward_api::update_rule)
                 .delete(port_forward_api::delete_rule),
+        )
+        .route(
+            "/api/one-to-one-nat",
+            get(one_to_one_nat_api::list_rules)
+                .post(one_to_one_nat_api::add_rule),
+        )
+        .route(
+            "/api/one-to-one-nat/{id}",
+            put(one_to_one_nat_api::update_rule)
+                .delete(one_to_one_nat_api::delete_rule),
         )
         .route(
             "/api/routes",

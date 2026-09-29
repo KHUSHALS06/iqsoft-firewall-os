@@ -328,6 +328,21 @@ pub async fn initialize_database(pool: &SqlitePool) -> Result<(), sqlx::Error> {
 
     sqlx::query(
         r#"
+        CREATE TABLE IF NOT EXISTS one_to_one_nat_rules (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            name          TEXT NOT NULL,
+            enabled       INTEGER NOT NULL DEFAULT 1,
+            external_ip   TEXT NOT NULL UNIQUE,
+            internal_ip   TEXT NOT NULL UNIQUE,
+            comment       TEXT
+        );
+        "#,
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        r#"
         CREATE TABLE IF NOT EXISTS routes (
             id              INTEGER PRIMARY KEY AUTOINCREMENT,
             name            TEXT NOT NULL,

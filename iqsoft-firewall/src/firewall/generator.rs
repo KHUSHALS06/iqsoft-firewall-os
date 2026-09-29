@@ -6,6 +6,7 @@ use crate::{
             normalize_days, normalize_mac, normalize_rate_limit, normalize_time_of_day, FirewallRule,
         },
         network_config::NetworkConfig,
+        one_to_one_nat::OneToOneNatRule,
         port_forward::PortForwardRule,
     },
     repository::{
@@ -14,6 +15,7 @@ use crate::{
         dns_repository::DnsRepository,
         firewall_repository::FirewallRepository,
         network_config_repository::NetworkConfigRepository,
+        one_to_one_nat_repository::OneToOneNatRepository,
         port_forward_repository::PortForwardRepository,
     },
 };
@@ -84,6 +86,13 @@ impl FirewallGenerator {
             .filter(|r| r.enabled)
             .collect();
 
+        let one_to_one: Vec<OneToOneNatRule> = OneToOneNatRepository::list_rules(pool)
+            .await
+            .map_err(|e| e.to_string())?
+            .into_iter()
+            .filter(|r| r.enabled)
+            .collect();
+
         let addr_sets = Self::load_address_sets(pool, &rules).await?;
 
         let mut output = String::new();
@@ -144,7 +153,7 @@ impl FirewallGenerator {
 
         output.push_str("}\n\n");
 
-        Self::generate_nat_table(&mut output, &net_config, &port_forwards);
+        Self::generate_nat_table(&mut output, &net_config, &port_forwards, &one_to_one);
 
         Ok(output)
     }
@@ -490,30 +499,59 @@ impl FirewallGenerator {
         output.push('\n');
     }
 
+    fn o2o_is_usable(rule: &OneToOneNatRule) -> bool {
+        if rule.external_ip.trim().parse::<Ipv4Addr>().is_err()
+            || rule.internal_ip.trim().parse::<Ipv4Addr>().is_err()
+        {
+            eprintln!(
+                "WARNING: skipping 1:1 NAT rule '{}' (id={:?}) - invalid address in database: '{}' <-> '{}'",
+                rule.name, rule.id, rule.external_ip, rule.internal_ip
+            );
+            return false;
+        }
+        true
+    }
+
     fn generate_nat_table(
         output: &mut String,
         net_config: &NetworkConfig,
         port_forwards: &[PortForwardRule],
+        one_to_one: &[OneToOneNatRule],
     ) {
         let has_forwards = !port_forwards.is_empty();
+        let usable_o2o: Vec<&OneToOneNatRule> = one_to_one
+            .iter()
+            .filter(|r| Self::o2o_is_usable(r))
+            .collect();
 
-        if !net_config.nat_enabled && !has_forwards {
+        if !net_config.nat_enabled && !has_forwards && usable_o2o.is_empty() {
             return;
         }
 
         let wan = net_config.wan_interface.trim();
         if wan.is_empty() {
-            eprintln!("WARNING: NAT/port forwarding is enabled but no WAN interface is configured - skipping NAT table");
+            eprintln!("WARNING: NAT is enabled but no WAN interface is configured - skipping NAT table");
             return;
         }
 
         output.push_str("table ip nat {\n\n");
 
-        // Port forwarding (DNAT)
         output.push_str("    chain prerouting {\n");
         output.push_str("        type nat hook prerouting priority -100;\n");
         output.push_str("        policy accept;\n\n");
 
+        // 1:1 NAT goes first: a whole-host mapping must win over any port forward.
+        for rule in &usable_o2o {
+            output.push_str(&format!(
+                "        iifname \"{}\" ip daddr {} dnat to {} # 1:1 NAT: {}\n",
+                wan,
+                rule.external_ip.trim(),
+                rule.internal_ip.trim(),
+                Self::sanitize_comment(&rule.name),
+            ));
+        }
+
+        // Port forwarding (DNAT)
         for rule in port_forwards {
             if !Self::pf_is_usable(rule) {
                 continue;
@@ -544,10 +582,22 @@ impl FirewallGenerator {
 
         output.push_str("    }\n\n");
 
-        // Outbound NAT (masquerade)
+        // Outbound NAT
         output.push_str("    chain postrouting {\n");
         output.push_str("        type nat hook postrouting priority 100;\n");
         output.push_str("        policy accept;\n\n");
+
+        // 1:1 SNAT must come before masquerade so the mapped host leaves the
+        // WAN with its own external address instead of the shared WAN address.
+        for rule in &usable_o2o {
+            output.push_str(&format!(
+                "        oifname \"{}\" ip saddr {} snat to {} # 1:1 NAT: {}\n",
+                wan,
+                rule.internal_ip.trim(),
+                rule.external_ip.trim(),
+                Self::sanitize_comment(&rule.name),
+            ));
+        }
 
         if net_config.nat_enabled {
             output.push_str(&format!(

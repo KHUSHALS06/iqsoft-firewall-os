@@ -5,6 +5,7 @@ pub mod dns;
 pub mod firewall;
 pub mod health;
 pub mod network_config;
+pub mod one_to_one_nat;
 pub mod port_forward;
 pub mod monitor;
 pub mod route;
