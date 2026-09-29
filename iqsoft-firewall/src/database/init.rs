@@ -170,6 +170,32 @@ pub async fn initialize_database(pool: &SqlitePool) -> Result<(), sqlx::Error> {
         println!("✓ Added rate_limit column to firewall_rules");
     }
 
+    let has_src_mac = rule_columns
+        .iter()
+        .any(|row| row.get::<String, _>("name") == "src_mac");
+
+    if !has_src_mac {
+        sqlx::query("ALTER TABLE firewall_rules ADD COLUMN src_mac TEXT;")
+            .execute(pool)
+            .await?;
+
+        println!("✓ Added src_mac column to firewall_rules");
+    }
+
+    for column in ["time_start", "time_end", "days"] {
+        let has_column = rule_columns
+            .iter()
+            .any(|row| row.get::<String, _>("name") == column);
+
+        if !has_column {
+            sqlx::query(&format!("ALTER TABLE firewall_rules ADD COLUMN {} TEXT;", column))
+                .execute(pool)
+                .await?;
+
+            println!("✓ Added {} column to firewall_rules", column);
+        }
+    }
+
     // Check if network_config exists
     let network_config_exists = sqlx::query(
         "SELECT name FROM sqlite_master WHERE type='table' AND name='network_config';",
@@ -348,4 +374,149 @@ pub async fn initialize_database(pool: &SqlitePool) -> Result<(), sqlx::Error> {
     super::address_schema::create_address_tables(pool).await?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::initialize_database;
+    use sqlx::{sqlite::SqlitePoolOptions, Row, SqlitePool};
+
+    async fn memory_pool() -> SqlitePool {
+        SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap()
+    }
+
+    async fn rule_columns(pool: &SqlitePool) -> Vec<String> {
+        sqlx::query("PRAGMA table_info(firewall_rules);")
+            .fetch_all(pool)
+            .await
+            .unwrap()
+            .iter()
+            .map(|row| row.get::<String, _>("name"))
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn fresh_database_has_src_mac_column() {
+        let pool = memory_pool().await;
+        initialize_database(&pool).await.unwrap();
+
+        assert!(rule_columns(&pool).await.contains(&"src_mac".to_string()));
+    }
+
+    #[tokio::test]
+    async fn initializing_twice_keeps_a_single_src_mac_column() {
+        let pool = memory_pool().await;
+        initialize_database(&pool).await.unwrap();
+        initialize_database(&pool).await.unwrap();
+
+        let count = rule_columns(&pool)
+            .await
+            .iter()
+            .filter(|name| name.as_str() == "src_mac")
+            .count();
+
+        assert_eq!(count, 1);
+    }
+
+    #[tokio::test]
+    async fn existing_database_gets_src_mac_and_keeps_its_rules() {
+        let pool = memory_pool().await;
+        initialize_database(&pool).await.unwrap();
+
+        sqlx::query(
+            "INSERT INTO firewall_rules (name, chain_name, action, protocol, dst_port)
+             VALUES ('old rule', 'INPUT', 'accept', 'tcp', 22)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        sqlx::query("ALTER TABLE firewall_rules DROP COLUMN src_mac;")
+            .execute(&pool)
+            .await
+            .unwrap();
+        assert!(!rule_columns(&pool).await.contains(&"src_mac".to_string()));
+
+        initialize_database(&pool).await.unwrap();
+
+        assert!(rule_columns(&pool).await.contains(&"src_mac".to_string()));
+
+        let row = sqlx::query("SELECT name, src_mac FROM firewall_rules")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(row.get::<String, _>("name"), "old rule");
+        assert_eq!(row.get::<Option<String>, _>("src_mac"), None);
+    }
+
+    #[tokio::test]
+    async fn fresh_database_has_the_time_rule_columns() {
+        let pool = memory_pool().await;
+        initialize_database(&pool).await.unwrap();
+
+        let columns = rule_columns(&pool).await;
+
+        for column in ["time_start", "time_end", "days"] {
+            assert!(columns.contains(&column.to_string()), "{}", column);
+        }
+    }
+
+    #[tokio::test]
+    async fn initializing_twice_keeps_a_single_copy_of_each_time_column() {
+        let pool = memory_pool().await;
+        initialize_database(&pool).await.unwrap();
+        initialize_database(&pool).await.unwrap();
+
+        let columns = rule_columns(&pool).await;
+
+        for column in ["time_start", "time_end", "days"] {
+            assert_eq!(columns.iter().filter(|name| name.as_str() == column).count(), 1, "{}", column);
+        }
+    }
+
+    #[tokio::test]
+    async fn existing_database_gets_the_time_columns_and_keeps_its_rules() {
+        let pool = memory_pool().await;
+        initialize_database(&pool).await.unwrap();
+
+        sqlx::query(
+            "INSERT INTO firewall_rules (name, chain_name, action, protocol, dst_port)
+             VALUES ('old rule', 'INPUT', 'accept', 'tcp', 22)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        for column in ["time_start", "time_end", "days"] {
+            sqlx::query(&format!("ALTER TABLE firewall_rules DROP COLUMN {};", column))
+                .execute(&pool)
+                .await
+                .unwrap();
+        }
+
+        let columns = rule_columns(&pool).await;
+        for column in ["time_start", "time_end", "days"] {
+            assert!(!columns.contains(&column.to_string()), "{}", column);
+        }
+
+        initialize_database(&pool).await.unwrap();
+
+        let columns = rule_columns(&pool).await;
+        for column in ["time_start", "time_end", "days"] {
+            assert!(columns.contains(&column.to_string()), "{}", column);
+        }
+
+        let row = sqlx::query("SELECT name, time_start, time_end, days FROM firewall_rules")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(row.get::<String, _>("name"), "old rule");
+        assert_eq!(row.get::<Option<String>, _>("time_start"), None);
+        assert_eq!(row.get::<Option<String>, _>("time_end"), None);
+        assert_eq!(row.get::<Option<String>, _>("days"), None);
+    }
 }

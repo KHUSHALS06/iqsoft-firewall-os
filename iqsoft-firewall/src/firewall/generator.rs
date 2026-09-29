@@ -2,7 +2,9 @@ use crate::{
     models::{
         dhcp::DhcpConfig,
         dns::DnsConfig,
-        firewall_rule::{normalize_rate_limit, FirewallRule},
+        firewall_rule::{
+            normalize_days, normalize_mac, normalize_rate_limit, normalize_time_of_day, FirewallRule,
+        },
         network_config::NetworkConfig,
         port_forward::PortForwardRule,
     },
@@ -22,6 +24,27 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::net::{Ipv4Addr, SocketAddr};
 
 pub struct FirewallGenerator;
+
+struct DdosLimits {
+    tag: &'static str,
+    syn_rate: u32,
+    syn_burst: u32,
+    max_connections: u32,
+}
+
+const DDOS_INPUT: DdosLimits = DdosLimits {
+    tag: "in",
+    syn_rate: 25,
+    syn_burst: 50,
+    max_connections: 100,
+};
+
+const DDOS_FORWARD: DdosLimits = DdosLimits {
+    tag: "fwd",
+    syn_rate: 200,
+    syn_burst: 400,
+    max_connections: 1000,
+};
 
 /// An address object or group that at least one enabled rule refers to,
 /// ready to be written as an nftables named set.
@@ -72,6 +95,9 @@ impl FirewallGenerator {
 
         Self::generate_address_sets(&mut output, &addr_sets);
 
+        Self::generate_ddos_sets(&mut output, &DDOS_INPUT);
+        Self::generate_ddos_sets(&mut output, &DDOS_FORWARD);
+
         // INPUT
         output.push_str("    chain input {\n");
         output.push_str("        type filter hook input priority 0;\n");
@@ -80,6 +106,8 @@ impl FirewallGenerator {
         output.push_str("        iif lo accept\n");
         output.push_str("        ct state invalid drop\n");
         output.push_str("        ct state established,related accept\n\n");
+
+        Self::generate_ddos_rules(&mut output, &DDOS_INPUT);
 
         Self::generate_self_protection(&mut output, &net_config, &dhcp_config, &dns_config);
 
@@ -96,6 +124,8 @@ impl FirewallGenerator {
         // server back to the internet) must be let through.
         output.push_str("        ct state invalid drop\n");
         output.push_str("        ct state established,related accept\n\n");
+
+        Self::generate_ddos_rules(&mut output, &DDOS_FORWARD);
 
         Self::generate_port_forward_accepts(&mut output, &net_config, &port_forwards);
 
@@ -227,6 +257,51 @@ impl FirewallGenerator {
             ));
             output.push_str("    }\n\n");
         }
+    }
+
+    fn generate_ddos_sets(output: &mut String, limits: &DdosLimits) {
+        for family in ["v4", "v6"] {
+            let addr_type = if family == "v4" { "ipv4_addr" } else { "ipv6_addr" };
+
+            output.push_str(&format!("    set ddos_syn_{}_{} {{\n", limits.tag, family));
+            output.push_str(&format!("        type {};\n", addr_type));
+            output.push_str("        size 65535;\n");
+            output.push_str("        flags dynamic,timeout;\n");
+            output.push_str("        timeout 1m;\n");
+            output.push_str("    }\n\n");
+
+            output.push_str(&format!("    set ddos_conn_{}_{} {{\n", limits.tag, family));
+            output.push_str(&format!("        type {};\n", addr_type));
+            output.push_str("        size 65535;\n");
+            output.push_str("        flags dynamic;\n");
+            output.push_str("    }\n\n");
+        }
+    }
+
+    fn generate_ddos_rules(output: &mut String, limits: &DdosLimits) {
+        output.push_str("        tcp flags & (fin|syn|rst|psh|ack|urg) == 0x0 drop\n");
+        output.push_str("        tcp flags & (fin|syn) == (fin|syn) drop\n");
+        output.push_str("        tcp flags & (syn|rst) == (syn|rst) drop\n");
+        output.push_str("        tcp flags & (fin|rst) == (fin|rst) drop\n");
+        output.push_str("        tcp flags & (fin|ack) == fin drop\n");
+        output.push_str("        tcp flags & (urg|ack) == urg drop\n");
+        output.push_str("        tcp flags & (psh|ack) == psh drop\n");
+
+        for (family, saddr) in [("v4", "ip saddr"), ("v6", "ip6 saddr")] {
+            output.push_str(&format!(
+                "        tcp flags & (fin|syn|rst|ack) == syn ct state new add @ddos_syn_{}_{} {{ {} limit rate over {}/second burst {} packets }} counter drop\n",
+                limits.tag, family, saddr, limits.syn_rate, limits.syn_burst
+            ));
+        }
+
+        for (family, saddr) in [("v4", "ip saddr"), ("v6", "ip6 saddr")] {
+            output.push_str(&format!(
+                "        tcp flags & (fin|syn|rst|ack) == syn ct state new add @ddos_conn_{}_{} {{ {} ct count over {} }} counter drop\n",
+                limits.tag, family, saddr, limits.max_connections
+            ));
+        }
+
+        output.push('\n');
     }
 
     /// Works out how one src_ip or dst_ip value is written in a rule.
@@ -526,6 +601,45 @@ impl FirewallGenerator {
                 }
             }
 
+            if let Some(mac) = &rule.src_mac {
+                let trimmed = mac.trim();
+
+                if !trimmed.is_empty() {
+                    if chain.eq_ignore_ascii_case("OUTPUT") {
+                        eprintln!(
+                            "WARNING: skipping rule '{}' (id={:?}) — src_mac is not valid on an OUTPUT rule",
+                            rule.name, rule.id
+                        );
+                        continue;
+                    }
+
+                    match normalize_mac(trimmed) {
+                        Some(normalized) => {
+                            line.push_str(&format!("ether saddr {} ", normalized));
+                        }
+                        None => {
+                            eprintln!(
+                                "WARNING: skipping rule '{}' (id={:?}) — invalid src_mac in database: '{}'",
+                                rule.name, rule.id, mac
+                            );
+                            continue;
+                        }
+                    }
+                }
+            }
+
+            match Self::time_match(rule) {
+                Ok(Some(text)) => line.push_str(&text),
+                Ok(None) => {}
+                Err(reason) => {
+                    eprintln!(
+                        "WARNING: skipping rule '{}' (id={:?}) — {}",
+                        rule.name, rule.id, reason
+                    );
+                    continue;
+                }
+            }
+
             let mut src_match: Option<(bool, String)> = None;
             if let Some(src) = &rule.src_ip {
                 if !src.trim().is_empty() {
@@ -585,7 +699,11 @@ impl FirewallGenerator {
 
             match rule.protocol.to_lowercase().as_str() {
                 "tcp" => {
-                    line.push_str("tcp ");
+                    if rule.src_port.is_some() || rule.dst_port.is_some() {
+                        line.push_str("tcp ");
+                    } else {
+                        line.push_str("meta l4proto tcp ");
+                    }
 
                     if let Some(port) = rule.src_port {
                         line.push_str(&format!("sport {} ", port));
@@ -599,7 +717,11 @@ impl FirewallGenerator {
                 }
 
                 "udp" => {
-                    line.push_str("udp ");
+                    if rule.src_port.is_some() || rule.dst_port.is_some() {
+                        line.push_str("udp ");
+                    } else {
+                        line.push_str("meta l4proto udp ");
+                    }
 
                     if let Some(port) = rule.src_port {
                         line.push_str(&format!("sport {} ", port));
@@ -684,6 +806,65 @@ impl FirewallGenerator {
         }
 
         output.push('\n');
+    }
+
+    fn day_full_name(abbreviation: &str) -> Option<&'static str> {
+        match abbreviation {
+            "mon" => Some("Monday"),
+            "tue" => Some("Tuesday"),
+            "wed" => Some("Wednesday"),
+            "thu" => Some("Thursday"),
+            "fri" => Some("Friday"),
+            "sat" => Some("Saturday"),
+            "sun" => Some("Sunday"),
+            _ => None,
+        }
+    }
+
+    fn time_match(rule: &FirewallRule) -> Result<Option<String>, String> {
+        fn non_blank(value: &Option<String>) -> Option<&str> {
+            value.as_deref().map(str::trim).filter(|v| !v.is_empty())
+        }
+
+        let mut text = String::new();
+
+        match (non_blank(&rule.time_start), non_blank(&rule.time_end)) {
+            (None, None) => {}
+            (Some(start), Some(end)) => {
+                let start_norm = normalize_time_of_day(start)
+                    .ok_or_else(|| format!("invalid time_start in database: '{}'", start))?;
+                let end_norm = normalize_time_of_day(end)
+                    .ok_or_else(|| format!("invalid time_end in database: '{}'", end))?;
+
+                if start_norm == end_norm {
+                    return Err("time_start and time_end are the same".into());
+                }
+
+                text.push_str(&format!("meta hour \"{}\"-\"{}\" ", start_norm, end_norm));
+            }
+            _ => return Err("only one of time_start and time_end is set".into()),
+        }
+
+        if let Some(days) = non_blank(&rule.days) {
+            let normalized = normalize_days(days)
+                .ok_or_else(|| format!("invalid days in database: '{}'", days))?;
+
+            let names: Vec<String> = normalized
+                .split(',')
+                .filter_map(Self::day_full_name)
+                .map(|name| format!("\"{}\"", name))
+                .collect();
+
+            if names.len() < 7 {
+                text.push_str(&format!("meta day {{ {} }} ", names.join(", ")));
+            }
+        }
+
+        if text.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(text))
+        }
     }
 
     fn ip_family(value: &str) -> Option<bool> {
@@ -800,6 +981,58 @@ mod tests {
 
 table inet filter {
 
+    set ddos_syn_in_v4 {
+        type ipv4_addr;
+        size 65535;
+        flags dynamic,timeout;
+        timeout 1m;
+    }
+
+    set ddos_conn_in_v4 {
+        type ipv4_addr;
+        size 65535;
+        flags dynamic;
+    }
+
+    set ddos_syn_in_v6 {
+        type ipv6_addr;
+        size 65535;
+        flags dynamic,timeout;
+        timeout 1m;
+    }
+
+    set ddos_conn_in_v6 {
+        type ipv6_addr;
+        size 65535;
+        flags dynamic;
+    }
+
+    set ddos_syn_fwd_v4 {
+        type ipv4_addr;
+        size 65535;
+        flags dynamic,timeout;
+        timeout 1m;
+    }
+
+    set ddos_conn_fwd_v4 {
+        type ipv4_addr;
+        size 65535;
+        flags dynamic;
+    }
+
+    set ddos_syn_fwd_v6 {
+        type ipv6_addr;
+        size 65535;
+        flags dynamic,timeout;
+        timeout 1m;
+    }
+
+    set ddos_conn_fwd_v6 {
+        type ipv6_addr;
+        size 65535;
+        flags dynamic;
+    }
+
     chain input {
         type filter hook input priority 0;
         policy drop;
@@ -807,6 +1040,18 @@ table inet filter {
         iif lo accept
         ct state invalid drop
         ct state established,related accept
+
+        tcp flags & (fin|syn|rst|psh|ack|urg) == 0x0 drop
+        tcp flags & (fin|syn) == (fin|syn) drop
+        tcp flags & (syn|rst) == (syn|rst) drop
+        tcp flags & (fin|rst) == (fin|rst) drop
+        tcp flags & (fin|ack) == fin drop
+        tcp flags & (urg|ack) == urg drop
+        tcp flags & (psh|ack) == psh drop
+        tcp flags & (fin|syn|rst|ack) == syn ct state new add @ddos_syn_in_v4 { ip saddr limit rate over 25/second burst 50 packets } counter drop
+        tcp flags & (fin|syn|rst|ack) == syn ct state new add @ddos_syn_in_v6 { ip6 saddr limit rate over 25/second burst 50 packets } counter drop
+        tcp flags & (fin|syn|rst|ack) == syn ct state new add @ddos_conn_in_v4 { ip saddr ct count over 100 } counter drop
+        tcp flags & (fin|syn|rst|ack) == syn ct state new add @ddos_conn_in_v6 { ip6 saddr ct count over 100 } counter drop
 
         meta l4proto icmpv6 icmpv6 type { destination-unreachable, packet-too-big, time-exceeded, parameter-problem } accept
         meta l4proto icmpv6 icmpv6 type { nd-neighbor-solicit, nd-neighbor-advert, nd-router-advert } ip6 hoplimit 255 accept
@@ -825,6 +1070,18 @@ table inet filter {
         ct state invalid drop
         ct state established,related accept
 
+        tcp flags & (fin|syn|rst|psh|ack|urg) == 0x0 drop
+        tcp flags & (fin|syn) == (fin|syn) drop
+        tcp flags & (syn|rst) == (syn|rst) drop
+        tcp flags & (fin|rst) == (fin|rst) drop
+        tcp flags & (fin|ack) == fin drop
+        tcp flags & (urg|ack) == urg drop
+        tcp flags & (psh|ack) == psh drop
+        tcp flags & (fin|syn|rst|ack) == syn ct state new add @ddos_syn_fwd_v4 { ip saddr limit rate over 200/second burst 400 packets } counter drop
+        tcp flags & (fin|syn|rst|ack) == syn ct state new add @ddos_syn_fwd_v6 { ip6 saddr limit rate over 200/second burst 400 packets } counter drop
+        tcp flags & (fin|syn|rst|ack) == syn ct state new add @ddos_conn_fwd_v4 { ip saddr ct count over 1000 } counter drop
+        tcp flags & (fin|syn|rst|ack) == syn ct state new add @ddos_conn_fwd_v6 { ip6 saddr ct count over 1000 } counter drop
+
 
         ip daddr 10.0.0.10 tcp dport 443 counter accept comment "iqsoft-rule-2"
         ip6 saddr 2001:db8::/32 ip6 daddr 2001:db8:1::53 udp dport 53 counter accept comment "iqsoft-rule-3"
@@ -836,7 +1093,7 @@ table inet filter {
         type filter hook output priority 0;
         policy accept;
 
-        oifname "eth0" udp counter accept comment "iqsoft-rule-6" # all udp out: all ports intentionally allowed
+        oifname "eth0" meta l4proto udp counter accept comment "iqsoft-rule-6" # all udp out: all ports intentionally allowed
 
     }
 }
@@ -867,6 +1124,340 @@ table ip nat {
         let text = FirewallGenerator::generate(&pool).await.unwrap();
 
         assert_eq!(without_environment_lines(&text), BASELINE);
+    }
+
+    #[tokio::test]
+    async fn ddos_protection_covers_input_and_forward_only() {
+        let pool = memory_pool().await;
+        let text = generate_text(&pool).await;
+
+        let input = &text[text.find("chain input").unwrap()..text.find("chain forward").unwrap()];
+        let forward = &text[text.find("chain forward").unwrap()..text.find("chain output").unwrap()];
+        let output = &text[text.find("chain output").unwrap()..text.find("table ip nat").unwrap()];
+
+        assert!(input.contains("add @ddos_syn_in_v4 { ip saddr limit rate over 25/second burst 50 packets }"));
+        assert!(input.contains("add @ddos_conn_in_v6 { ip6 saddr ct count over 100 }"));
+        assert!(forward.contains("add @ddos_syn_fwd_v4 { ip saddr limit rate over 200/second burst 400 packets }"));
+        assert!(forward.contains("add @ddos_conn_fwd_v4 { ip saddr ct count over 1000 }"));
+        assert!(!output.contains("ddos"));
+        assert!(!output.contains("tcp flags"));
+
+        assert_eq!(text.matches("set ddos_").count(), 8);
+    }
+
+    #[tokio::test]
+    async fn ddos_rules_come_after_established_and_before_user_rules() {
+        let pool = baseline_pool().await;
+        let text = generate_text(&pool).await;
+
+        let input = &text[text.find("chain input").unwrap()..text.find("chain forward").unwrap()];
+        let established = input.find("ct state established,related accept").unwrap();
+        let ddos = input.find("tcp flags & (fin|syn|rst|psh|ack|urg) == 0x0 drop").unwrap();
+        let user_rule = input.find("iqsoft-rule-1").unwrap();
+
+        assert!(established < ddos);
+        assert!(ddos < user_rule);
+    }
+
+    #[tokio::test]
+    async fn ddos_protection_passes_nft_check() {
+        let pool = memory_pool().await;
+        add_rule(&pool, "web", "FORWARD", "accept", "tcp",
+            None, Some("10.0.0.10"), Some(443), (false, None, None, false)).await;
+        nft_check(&FirewallGenerator::generate(&pool).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn rules_without_ports_use_l4proto_and_pass_nft_check() {
+        let pool = memory_pool().await;
+        let none = (false, None, None, false);
+        let any_ports = (true, None, None, false);
+
+        add_rule(&pool, "all tcp", "FORWARD", "accept", "tcp",
+            Some("10.0.0.0/24"), None, None, any_ports).await;
+        add_rule(&pool, "all udp", "INPUT", "accept", "udp",
+            None, None, None, any_ports).await;
+        add_rule(&pool, "web", "FORWARD", "accept", "tcp",
+            None, Some("10.0.0.10"), Some(443), none).await;
+
+        let text = generate_text(&pool).await;
+
+        assert!(text.contains("ip saddr 10.0.0.0/24 meta l4proto tcp counter accept comment"));
+        assert!(text.contains("meta l4proto udp counter accept comment"));
+        assert!(text.contains("ip daddr 10.0.0.10 tcp dport 443 counter accept comment"));
+        assert!(!text.contains("accept tcp counter"));
+        assert!(!text.replace("meta l4proto tcp counter", "").contains("tcp counter"));
+        assert!(!text.replace("meta l4proto udp counter", "").contains("udp counter"));
+
+        nft_check(&FirewallGenerator::generate(&pool).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn baseline_passes_nft_check() {
+        let pool = baseline_pool().await;
+        nft_check(&FirewallGenerator::generate(&pool).await.unwrap());
+    }
+
+    async fn set_src_mac(pool: &SqlitePool, rule_name: &str, mac: &str) {
+        sqlx::query("UPDATE firewall_rules SET src_mac = ? WHERE name = ?")
+            .bind(mac)
+            .bind(rule_name)
+            .execute(pool)
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn src_mac_renders_as_ether_saddr_after_the_interface() {
+        let pool = memory_pool().await;
+        let none = (false, None, None, false);
+
+        add_rule(&pool, "block laptop", "FORWARD", "drop", "any",
+            None, None, None, (false, Some("eth1"), None, false)).await;
+        set_src_mac(&pool, "block laptop", "aa:bb:cc:dd:ee:ff").await;
+
+        add_rule(&pool, "allow ssh from box", "INPUT", "accept", "tcp",
+            Some("192.168.1.0/24"), None, Some(22), none).await;
+        set_src_mac(&pool, "allow ssh from box", "00:1a:2b:03:04:05").await;
+
+        let text = generate_text(&pool).await;
+
+        assert!(text.contains("iifname \"eth1\" ether saddr aa:bb:cc:dd:ee:ff counter drop comment"));
+        assert!(text.contains("ether saddr 00:1a:2b:03:04:05 ip saddr 192.168.1.0/24 tcp dport 22 counter accept comment"));
+    }
+
+    #[tokio::test]
+    async fn src_mac_is_normalized_again_at_generation_time() {
+        let pool = memory_pool().await;
+
+        add_rule(&pool, "upper", "FORWARD", "drop", "any",
+            None, None, None, (false, None, None, false)).await;
+        set_src_mac(&pool, "upper", "AA-BB-CC-DD-EE-FF").await;
+
+        let text = generate_text(&pool).await;
+
+        assert!(text.contains("ether saddr aa:bb:cc:dd:ee:ff counter drop"));
+        assert!(!text.contains("AA-BB"));
+    }
+
+    #[tokio::test]
+    async fn bad_or_misplaced_src_mac_rows_are_skipped_not_emitted() {
+        let pool = memory_pool().await;
+        let none = (false, None, None, false);
+
+        let bad_values = [
+            "not-a-mac",
+            "ff:ff:ff:ff:ff:ff",
+            "aa:bb:cc:dd:ee:ff; accept",
+            "aa:bb:cc:dd:ee:ff\" accept comment \"x",
+        ];
+
+        for (i, value) in bad_values.iter().enumerate() {
+            let name = format!("bad mac {}", i);
+            add_rule(&pool, &name, "FORWARD", "drop", "any", None, None, None, none).await;
+            set_src_mac(&pool, &name, value).await;
+        }
+
+        add_rule(&pool, "mac on output", "OUTPUT", "drop", "any",
+            None, None, None, none).await;
+        set_src_mac(&pool, "mac on output", "aa:bb:cc:dd:ee:ff").await;
+
+        add_rule(&pool, "good neighbour", "FORWARD", "accept", "tcp",
+            None, Some("10.0.0.10"), Some(443), none).await;
+
+        let text = generate_text(&pool).await;
+
+        assert!(!text.contains("ether saddr"));
+        assert!(!text.contains("not-a-mac"));
+        assert!(!text.contains("ff:ff:ff:ff:ff:ff"));
+        assert!(text.contains("ip daddr 10.0.0.10 tcp dport 443 counter accept comment"));
+    }
+
+    #[tokio::test]
+    async fn blank_src_mac_row_behaves_like_no_mac() {
+        let pool = memory_pool().await;
+
+        add_rule(&pool, "blank", "FORWARD", "accept", "tcp",
+            None, Some("10.0.0.10"), Some(443), (false, None, None, false)).await;
+        set_src_mac(&pool, "blank", "   ").await;
+
+        let text = generate_text(&pool).await;
+
+        assert!(text.contains("ip daddr 10.0.0.10 tcp dport 443 counter accept comment"));
+        assert!(!text.contains("ether saddr"));
+    }
+
+    #[tokio::test]
+    async fn src_mac_rules_pass_nft_check() {
+        let pool = baseline_pool().await;
+        let none = (false, None, None, false);
+
+        add_rule(&pool, "mac drop any", "FORWARD", "drop", "any",
+            None, None, None, (false, Some("eth1"), None, true)).await;
+        set_src_mac(&pool, "mac drop any", "aa:bb:cc:dd:ee:ff").await;
+
+        add_rule(&pool, "mac v6", "FORWARD", "accept", "udp",
+            Some("2001:db8::/32"), Some("2001:db8:1::53"), Some(53), none).await;
+        set_src_mac(&pool, "mac v6", "00:1a:2b:03:04:05").await;
+
+        add_rule(&pool, "mac icmp", "INPUT", "accept", "icmp",
+            None, None, None, (false, None, Some("5/second"), false)).await;
+        set_src_mac(&pool, "mac icmp", "00:1a:2b:03:04:06").await;
+
+        add_rule(&pool, "mac all tcp", "INPUT", "accept", "tcp",
+            None, None, None, (true, None, None, false)).await;
+        set_src_mac(&pool, "mac all tcp", "00:1a:2b:03:04:07").await;
+
+        let text = FirewallGenerator::generate(&pool).await.unwrap();
+
+        assert_eq!(text.matches("ether saddr").count(), 4);
+        nft_check(&text);
+    }
+
+    async fn set_time(pool: &SqlitePool, rule_name: &str, start: Option<&str>, end: Option<&str>, days: Option<&str>) {
+        sqlx::query("UPDATE firewall_rules SET time_start = ?, time_end = ?, days = ? WHERE name = ?")
+            .bind(start)
+            .bind(end)
+            .bind(days)
+            .bind(rule_name)
+            .execute(pool)
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn time_window_and_days_render_as_meta_hour_and_meta_day() {
+        let pool = memory_pool().await;
+
+        add_rule(&pool, "office hours", "FORWARD", "accept", "tcp",
+            None, Some("10.0.0.10"), Some(443), (false, None, None, false)).await;
+        set_time(&pool, "office hours", Some("08:00"), Some("18:00"), Some("mon,tue,wed,thu,fri")).await;
+
+        let text = generate_text(&pool).await;
+
+        assert!(text.contains(
+            "meta hour \"08:00\"-\"18:00\" meta day { \"Monday\", \"Tuesday\", \"Wednesday\", \"Thursday\", \"Friday\" } ip daddr 10.0.0.10 tcp dport 443 counter accept comment"
+        ));
+    }
+
+    #[tokio::test]
+    async fn overnight_window_is_passed_through_unchanged() {
+        let pool = memory_pool().await;
+
+        add_rule(&pool, "night block", "FORWARD", "drop", "any",
+            Some("10.5.0.0/24"), None, None, (false, None, None, false)).await;
+        set_time(&pool, "night block", Some("22:00"), Some("06:00"), None).await;
+
+        let text = generate_text(&pool).await;
+
+        assert!(text.contains("meta hour \"22:00\"-\"06:00\" ip saddr 10.5.0.0/24 counter drop comment"));
+        assert!(!text.contains("meta day"));
+    }
+
+    #[tokio::test]
+    async fn days_without_a_window_and_all_seven_days() {
+        let pool = memory_pool().await;
+        let none = (false, None, None, false);
+
+        add_rule(&pool, "weekend only", "FORWARD", "drop", "any", Some("10.6.0.0/24"), None, None, none).await;
+        set_time(&pool, "weekend only", None, None, Some("sat,sun")).await;
+
+        add_rule(&pool, "every day", "FORWARD", "drop", "any", Some("10.7.0.0/24"), None, None, none).await;
+        set_time(&pool, "every day", None, None, Some("mon,tue,wed,thu,fri,sat,sun")).await;
+
+        let text = generate_text(&pool).await;
+
+        assert!(text.contains("meta day { \"Saturday\", \"Sunday\" } ip saddr 10.6.0.0/24 counter drop comment"));
+        assert!(text.contains("ip saddr 10.7.0.0/24 counter drop comment"));
+        assert!(!text.contains("meta day { \"Monday\", \"Tuesday\", \"Wednesday\", \"Thursday\", \"Friday\", \"Saturday\", \"Sunday\" }"));
+    }
+
+    #[tokio::test]
+    async fn time_values_are_normalized_again_at_generation_time() {
+        let pool = memory_pool().await;
+
+        add_rule(&pool, "loose values", "INPUT", "accept", "tcp",
+            None, None, Some(22), (false, None, None, false)).await;
+        set_time(&pool, "loose values", Some("8:05"), Some("18:00"), Some("Mon-Wed")).await;
+
+        let text = generate_text(&pool).await;
+
+        assert!(text.contains("meta hour \"08:05\"-\"18:00\" meta day { \"Monday\", \"Tuesday\", \"Wednesday\" } tcp dport 22 counter accept comment"));
+    }
+
+    #[tokio::test]
+    async fn bad_time_rows_are_skipped_not_emitted() {
+        let pool = memory_pool().await;
+        let none = (false, None, None, false);
+
+        let bad: [(Option<&str>, Option<&str>, Option<&str>); 7] = [
+            (Some("08:00"), None, None),
+            (None, Some("18:00"), None),
+            (Some("08:00"), Some("8:00"), None),
+            (Some("25:00"), Some("18:00"), None),
+            (Some("08:00"), Some("18:00\" accept"), None),
+            (None, None, Some("funday")),
+            (None, None, Some("mon\" accept comment \"x")),
+        ];
+
+        for (i, (start, end, days)) in bad.iter().enumerate() {
+            let name = format!("bad time {}", i);
+            add_rule(&pool, &name, "FORWARD", "drop", "any", None, None, None, none).await;
+            set_time(&pool, &name, *start, *end, *days).await;
+        }
+
+        add_rule(&pool, "good neighbour", "FORWARD", "accept", "tcp",
+            None, Some("10.0.0.10"), Some(443), none).await;
+
+        let text = generate_text(&pool).await;
+
+        assert!(!text.contains("meta hour"));
+        assert!(!text.contains("meta day"));
+        assert!(!text.contains("funday"));
+        assert!(text.contains("ip daddr 10.0.0.10 tcp dport 443 counter accept comment"));
+    }
+
+    #[tokio::test]
+    async fn blank_time_row_behaves_like_no_time() {
+        let pool = memory_pool().await;
+
+        add_rule(&pool, "blank", "FORWARD", "accept", "tcp",
+            None, Some("10.0.0.10"), Some(443), (false, None, None, false)).await;
+        set_time(&pool, "blank", Some(" "), Some(""), Some("  ")).await;
+
+        let text = generate_text(&pool).await;
+
+        assert!(text.contains("ip daddr 10.0.0.10 tcp dport 443 counter accept comment"));
+        assert!(!text.contains("meta hour"));
+        assert!(!text.contains("meta day"));
+    }
+
+    #[tokio::test]
+    async fn time_rules_pass_nft_check_together_with_other_matches() {
+        let pool = baseline_pool().await;
+
+        add_rule(&pool, "combined", "FORWARD", "drop", "tcp",
+            Some("192.168.1.0/24"), Some("10.0.0.10"), Some(443), (false, Some("eth1"), Some("5/second"), true)).await;
+        set_src_mac(&pool, "combined", "aa:bb:cc:dd:ee:ff").await;
+        set_time(&pool, "combined", Some("22:00"), Some("06:00"), Some("fri,sat")).await;
+
+        add_rule(&pool, "input hours", "INPUT", "accept", "tcp",
+            None, None, Some(22), (false, None, None, false)).await;
+        set_time(&pool, "input hours", Some("08:00"), Some("18:00"), None).await;
+
+        add_rule(&pool, "output days", "OUTPUT", "accept", "udp",
+            None, None, Some(53), (false, Some("eth0"), None, false)).await;
+        set_time(&pool, "output days", None, None, Some("mon-fri")).await;
+
+        add_rule(&pool, "v6 hours", "FORWARD", "accept", "icmp",
+            Some("2001:db8::/32"), None, None, (false, None, None, false)).await;
+        set_time(&pool, "v6 hours", Some("09:00"), Some("17:00"), Some("mon,wed")).await;
+
+        let text = FirewallGenerator::generate(&pool).await.unwrap();
+
+        assert_eq!(text.matches("meta hour").count(), 3);
+        assert_eq!(text.matches("meta day").count(), 3);
+        nft_check(&text);
     }
 
     #[tokio::test]
