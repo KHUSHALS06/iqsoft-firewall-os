@@ -386,6 +386,30 @@ pub async fn initialize_database(pool: &SqlitePool) -> Result<(), sqlx::Error> {
     .execute(pool)
     .await?;
 
+    sqlx::query(
+        r#"
+        CREATE TABLE IF NOT EXISTS audit_log (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            created_at   INTEGER NOT NULL,
+            user_id      INTEGER,
+            username     TEXT,
+            action       TEXT NOT NULL,
+            target       TEXT,
+            detail       TEXT,
+            success      INTEGER NOT NULL DEFAULT 1,
+            source_ip    TEXT
+        );
+        "#,
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_audit_log_created_at ON audit_log (created_at);",
+    )
+    .execute(pool)
+    .await?;
+
     super::address_schema::create_address_tables(pool).await?;
     super::wireguard_schema::create_wireguard_tables(pool).await?;
 
@@ -534,5 +558,49 @@ mod tests {
         assert_eq!(row.get::<Option<String>, _>("time_start"), None);
         assert_eq!(row.get::<Option<String>, _>("time_end"), None);
         assert_eq!(row.get::<Option<String>, _>("days"), None);
+    }
+
+    #[tokio::test]
+    async fn fresh_database_has_the_audit_log_table() {
+        let pool = memory_pool().await;
+        initialize_database(&pool).await.unwrap();
+
+        let columns: Vec<String> = sqlx::query("PRAGMA table_info(audit_log);")
+            .fetch_all(&pool)
+            .await
+            .unwrap()
+            .iter()
+            .map(|row| row.get::<String, _>("name"))
+            .collect();
+
+        for column in [
+            "id", "created_at", "user_id", "username", "action", "target", "detail", "success",
+            "source_ip",
+        ] {
+            assert!(columns.contains(&column.to_string()), "{}", column);
+        }
+    }
+
+    #[tokio::test]
+    async fn initializing_twice_keeps_audit_entries() {
+        let pool = memory_pool().await;
+        initialize_database(&pool).await.unwrap();
+
+        sqlx::query(
+            "INSERT INTO audit_log (created_at, username, action, success)
+             VALUES (1700000000, 'admin', 'login', 1)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        initialize_database(&pool).await.unwrap();
+
+        let row = sqlx::query("SELECT COUNT(*) AS n, MIN(username) AS u FROM audit_log")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(row.get::<i64, _>("n"), 1);
+        assert_eq!(row.get::<String, _>("u"), "admin");
     }
 }

@@ -1,5 +1,6 @@
 pub mod address;
 pub mod auth;
+pub mod audit;
 pub mod dhcp;
 pub mod dns;
 pub mod firewall;

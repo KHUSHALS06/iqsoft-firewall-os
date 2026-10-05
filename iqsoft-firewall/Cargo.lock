@@ -789,6 +789,7 @@ dependencies = [
  "sha2",
  "sqlx",
  "tokio",
+ "tower",
 ]
 
 [[package]]
