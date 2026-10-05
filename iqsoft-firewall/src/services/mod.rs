@@ -7,4 +7,5 @@ pub mod login_throttle;
 pub mod network_config_service;
 pub mod one_to_one_nat_service;
 pub mod port_forward_service;
+pub mod wireguard_service;
 pub mod route_service;
