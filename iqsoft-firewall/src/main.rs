@@ -66,24 +66,39 @@ async fn main() {
     match FirewallCommit::restore_on_boot(&commit_lock).await {
         Ok(message) => println!("{}", message),
         Err(e) => {
-            eprintln!("ERROR: could not restore the saved firewall configuration: {}", e);
-            eprintln!("ERROR: the firewall may be running with an empty ruleset until a commit succeeds");
+            eprintln!(
+                "ERROR: could not restore the saved firewall configuration: {}",
+                e
+            );
+            eprintln!(
+                "ERROR: the firewall may be running with an empty ruleset until a commit succeeds"
+            );
         }
     }
 
     match RouteCommit::restore_on_boot(&commit_lock).await {
         Ok(message) => println!("{}", message),
         Err(e) => {
-            eprintln!("ERROR: could not restore the saved routing configuration: {}", e);
-            eprintln!("ERROR: static routes may be missing until a routing commit succeeds");
+            eprintln!(
+                "ERROR: could not restore the saved routing configuration: {}",
+                e
+            );
+            eprintln!(
+                "ERROR: static routes may be missing until a routing commit succeeds"
+            );
         }
     }
 
     match WireguardCommit::restore_on_boot(&commit_lock).await {
         Ok(message) => println!("{}", message),
         Err(e) => {
-            eprintln!("ERROR: could not restore the saved WireGuard configuration: {}", e);
-            eprintln!("ERROR: the VPN tunnel may be down until a WireGuard commit succeeds");
+            eprintln!(
+                "ERROR: could not restore the saved WireGuard configuration: {}",
+                e
+            );
+            eprintln!(
+                "ERROR: the VPN tunnel may be down until a WireGuard commit succeeds"
+            );
         }
     }
 
@@ -324,7 +339,9 @@ async fn main() {
 
     let app = public.merge(protected).with_state(state);
 
-    let bind = std::env::var("IQSOFT_BIND").unwrap_or_else(|_| "127.0.0.1:3000".to_string());
+    let bind =
+        std::env::var("IQSOFT_BIND").unwrap_or_else(|_| "127.0.0.1:3000".to_string());
+
     let addr: SocketAddr = bind
         .parse()
         .expect("IQSOFT_BIND must look like 192.168.1.1:3443");
@@ -343,32 +360,20 @@ async fn main() {
             println!("Server running on https://{}", addr);
 
             axum_server::bind_rustls(addr, config)
-                .serve(app.into_make_service_with_connect_info::<SocketAddr>())
+                .serve(app.into_make_service())
                 .await
-                .unwrap();
+                .expect("Server failed");
         }
-        (None, None) => {
-            if !addr.ip().is_loopback() {
-                println!("WARNING: TLS is not configured and the API is reachable from the network.");
-                println!("WARNING: passwords and session tokens will travel unencrypted.");
-                println!("WARNING: set IQSOFT_TLS_CERT and IQSOFT_TLS_KEY.");
-            }
-
+        _ => {
             println!("Server running on http://{}", addr);
 
             let listener = tokio::net::TcpListener::bind(addr)
                 .await
-                .unwrap();
+                .expect("Failed to bind server");
 
-            axum::serve(
-                listener,
-                app.into_make_service_with_connect_info::<SocketAddr>(),
-            )
-            .await
-            .unwrap();
-        }
-        _ => {
-            panic!("Set both IQSOFT_TLS_CERT and IQSOFT_TLS_KEY, or neither");
+            axum::serve(listener, app)
+                .await
+                .expect("Server failed");
         }
     }
 }

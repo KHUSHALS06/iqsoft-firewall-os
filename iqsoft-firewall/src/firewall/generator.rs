@@ -81,7 +81,7 @@ impl FirewallGenerator {
             .await
             .map_err(|e| e.to_string())?;
 
-        let wg_config = WireguardRepository::get_config(pool)
+        let wireguard_config = WireguardRepository::get_config(pool)
             .await
             .map_err(|e| e.to_string())?;
 
@@ -126,9 +126,9 @@ impl FirewallGenerator {
 
         Self::generate_self_protection(&mut output, &net_config, &dhcp_config, &dns_config);
 
-        Self::generate_chain(&mut output, &rules, "INPUT", &addr_sets);
+        output.push_str(&Self::wireguard_input_block(&wireguard_config));
 
-        Self::generate_wireguard_input(&mut output, &wg_config);
+        Self::generate_chain(&mut output, &rules, "INPUT", &addr_sets);
 
         output.push_str("    }\n\n");
 
@@ -147,8 +147,6 @@ impl FirewallGenerator {
         Self::generate_port_forward_accepts(&mut output, &net_config, &port_forwards);
 
         Self::generate_chain(&mut output, &rules, "FORWARD", &addr_sets);
-
-        Self::generate_wireguard_forward(&mut output, &net_config, &wg_config);
 
         output.push_str("    }\n\n");
 
@@ -352,6 +350,46 @@ impl FirewallGenerator {
                 .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.'))
     }
 
+    /// The one INPUT rule that lets WireGuard clients reach the firewall.
+    pub fn wireguard_listen_rule(port: i32) -> String {
+        format!("        udp dport {} accept # WireGuard VPN\n", port)
+    }
+
+    /// INPUT rules for the WireGuard tunnel: the UDP listen port, and ping to
+    /// the firewall from inside the tunnel. Empty while WireGuard is disabled.
+    ///
+    /// Traffic that is *forwarded* from the tunnel to other networks is not
+    /// opened here: the FORWARD policy stays drop, and the admin allows what
+    /// VPN users may reach with normal rules on the WireGuard interface.
+    pub fn wireguard_input_block(config: &WireguardConfig) -> String {
+        if !config.enabled {
+            return String::new();
+        }
+
+        let iface = config.interface_name.trim();
+
+        if !Self::is_safe_iface(iface) || !(1..=65535).contains(&config.listen_port) {
+            eprintln!(
+                "WARNING: WireGuard is enabled but its interface name or port is not valid - skipping WireGuard allow rules"
+            );
+            return String::new();
+        }
+
+        let mut out = Self::wireguard_listen_rule(config.listen_port);
+
+        out.push_str(&format!(
+            "        iifname \"{}\" ip protocol icmp icmp type echo-request limit rate 10/second accept\n",
+            iface
+        ));
+        out.push_str(&format!(
+            "        iifname \"{}\" meta l4proto icmpv6 icmpv6 type echo-request limit rate 10/second accept\n",
+            iface
+        ));
+        out.push('\n');
+
+        out
+    }
+
     fn management_port() -> Option<u16> {
         let bind = std::env::var("IQSOFT_BIND").unwrap_or_else(|_| "127.0.0.1:3000".to_string());
         let addr: SocketAddr = bind.parse().ok()?;
@@ -433,87 +471,6 @@ impl FirewallGenerator {
                     );
                 }
             }
-        }
-
-        output.push('\n');
-    }
-
-    /// Lets VPN clients reach the firewall itself: the WireGuard UDP port, and
-    /// ping from inside the tunnel. These come after the user's INPUT rules, so
-    /// a user rule that blocks something still wins.
-    fn generate_wireguard_input(output: &mut String, wg: &WireguardConfig) {
-        if !wg.enabled {
-            return;
-        }
-
-        let iface = wg.interface_name.trim();
-
-        if !Self::is_safe_iface(iface) {
-            eprintln!(
-                "WARNING: WireGuard interface name '{}' is not valid - skipping WireGuard allow rules",
-                iface
-            );
-            return;
-        }
-
-        if !(1..=65535).contains(&wg.listen_port) {
-            eprintln!(
-                "WARNING: WireGuard listen port {} is not valid - skipping WireGuard allow rules",
-                wg.listen_port
-            );
-            return;
-        }
-
-        output.push_str(&format!(
-            "        udp dport {} accept # WireGuard VPN\n",
-            wg.listen_port
-        ));
-        output.push_str(&format!(
-            "        iifname \"{}\" ip protocol icmp icmp type echo-request limit rate 10/second accept\n",
-            iface
-        ));
-        output.push_str(&format!(
-            "        iifname \"{}\" meta l4proto icmpv6 icmpv6 type echo-request limit rate 10/second accept\n",
-            iface
-        ));
-
-        output.push('\n');
-    }
-
-    /// VPN clients may go out to the internet (WAN) and into the LAN. Nothing is
-    /// opened in the other direction, so LAN hosts cannot start connections to
-    /// VPN clients unless the user adds a rule. Placed after the user's FORWARD
-    /// rules, so a user rule that blocks something still wins.
-    fn generate_wireguard_forward(
-        output: &mut String,
-        net_config: &NetworkConfig,
-        wg: &WireguardConfig,
-    ) {
-        if !wg.enabled {
-            return;
-        }
-
-        let iface = wg.interface_name.trim();
-
-        if !Self::is_safe_iface(iface) {
-            return;
-        }
-
-        let wan = net_config.wan_interface.trim();
-        let lan = net_config.lan_interface.trim();
-
-        if Self::is_safe_iface(wan) {
-            output.push_str(&format!(
-                "        iifname \"{}\" oifname \"{}\" accept # WireGuard VPN to internet\n",
-                iface, wan
-            ));
-        }
-
-        if Self::is_safe_iface(lan) {
-            output.push_str(&format!(
-                "        iifname \"{}\" oifname \"{}\" accept # WireGuard VPN to LAN\n",
-                iface, lan
-            ));
         }
 
         output.push('\n');
@@ -1835,4 +1792,77 @@ table ip nat {
         assert!(first.find("set addr_a1 ").unwrap() < first.find("set addr_grp ").unwrap());
         assert!(first.contains("elements = { 10.0.0.1, 10.0.0.9 }"));
     }
+
+    #[tokio::test]
+    async fn wireguard_disabled_adds_nothing_to_the_ruleset() {
+        let pool = memory_pool().await;
+
+        let out = FirewallGenerator::generate(&pool).await.unwrap();
+
+        assert!(!out.contains("WireGuard"));
+    }
+
+    #[tokio::test]
+    async fn wireguard_enabled_opens_the_listen_port_and_tunnel_ping() {
+        let pool = memory_pool().await;
+
+        sqlx::query(
+            "UPDATE wireguard_config SET enabled = 1, listen_port = 51821, interface_name = 'wg7' WHERE id = 1",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let out = FirewallGenerator::generate(&pool).await.unwrap();
+
+        assert!(out.contains("        udp dport 51821 accept # WireGuard VPN\n"));
+        assert!(out.contains(
+            "        iifname \"wg7\" ip protocol icmp icmp type echo-request limit rate 10/second accept\n"
+        ));
+        assert!(out.contains(
+            "        iifname \"wg7\" meta l4proto icmpv6 icmpv6 type echo-request limit rate 10/second accept\n"
+        ));
+
+        // Only the INPUT chain is touched: forwarding stays closed by default.
+        let forward_start = out.find("chain forward").unwrap();
+        let output_start = out.find("chain output").unwrap();
+        assert!(!out[forward_start..output_start].contains("wg7"));
+    }
+
+    #[tokio::test]
+    async fn wireguard_rules_are_in_the_input_chain() {
+        let pool = memory_pool().await;
+
+        sqlx::query("UPDATE wireguard_config SET enabled = 1 WHERE id = 1")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let out = FirewallGenerator::generate(&pool).await.unwrap();
+        let input_start = out.find("chain input").unwrap();
+        let forward_start = out.find("chain forward").unwrap();
+        let wg = out.find("# WireGuard VPN").unwrap();
+
+        assert!(wg > input_start && wg < forward_start);
+    }
+
+    #[test]
+    fn wireguard_block_is_empty_for_unsafe_interface_names() {
+        let config = WireguardConfig {
+            enabled: true,
+            interface_name: "wg0\" drop #".into(),
+            listen_port: 51820,
+            address: "10.8.0.1/24".into(),
+            mtu: None,
+            dns: None,
+            endpoint: None,
+            client_allowed_ips: vec!["0.0.0.0/0".into()],
+            private_key: String::new(),
+            public_key: String::new(),
+        };
+
+        assert_eq!(FirewallGenerator::wireguard_input_block(&config), "");
+    }
+
 }
+
