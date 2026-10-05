@@ -9,6 +9,7 @@ mod monitor;
 mod repository;
 mod routing;
 mod services;
+mod wireguard;
 
 use axum::{
     middleware,
@@ -30,6 +31,7 @@ use api::{
     one_to_one_nat as one_to_one_nat_api,
     port_forward as port_forward_api,
     route as route_api,
+    wireguard as wireguard_api,
 };
 use app_state::AppState;
 use database::{
@@ -39,6 +41,7 @@ use database::{
 use firewall::{commit::FirewallCommit, safe_commit::SafeCommit};
 use routing::commit::RouteCommit;
 use services::{auth_service::AuthService, login_throttle::LoginThrottle};
+use wireguard::commit::WireguardCommit;
 
 #[tokio::main]
 async fn main() {
@@ -73,6 +76,14 @@ async fn main() {
         Err(e) => {
             eprintln!("ERROR: could not restore the saved routing configuration: {}", e);
             eprintln!("ERROR: static routes may be missing until a routing commit succeeds");
+        }
+    }
+
+    match WireguardCommit::restore_on_boot(&commit_lock).await {
+        Ok(message) => println!("{}", message),
+        Err(e) => {
+            eprintln!("ERROR: could not restore the saved WireGuard configuration: {}", e);
+            eprintln!("ERROR: the VPN tunnel may be down until a WireGuard commit succeeds");
         }
     }
 
@@ -254,6 +265,37 @@ async fn main() {
             "/api/address-groups/{id}",
             put(address_api::update_group)
                 .delete(address_api::delete_group),
+        )
+        .route(
+            "/api/wireguard/config",
+            get(wireguard_api::get_config)
+                .put(wireguard_api::set_config),
+        )
+        .route(
+            "/api/wireguard/peers",
+            get(wireguard_api::list_peers)
+                .post(wireguard_api::add_peer),
+        )
+        .route(
+            "/api/wireguard/peers/{id}",
+            put(wireguard_api::update_peer)
+                .delete(wireguard_api::delete_peer),
+        )
+        .route(
+            "/api/wireguard/generate",
+            get(wireguard_api::generate_config),
+        )
+        .route(
+            "/api/wireguard/status",
+            get(wireguard_api::status),
+        )
+        .route(
+            "/api/wireguard/commit",
+            post(wireguard_api::commit),
+        )
+        .route(
+            "/api/wireguard/rollback",
+            post(wireguard_api::rollback),
         )
         .route(
             "/api/monitor/interfaces",

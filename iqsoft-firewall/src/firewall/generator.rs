@@ -8,6 +8,7 @@ use crate::{
         network_config::NetworkConfig,
         one_to_one_nat::OneToOneNatRule,
         port_forward::PortForwardRule,
+        wireguard::WireguardConfig,
     },
     repository::{
         address_repository::{AddressRepository, REF_PREFIX},
@@ -17,6 +18,7 @@ use crate::{
         network_config_repository::NetworkConfigRepository,
         one_to_one_nat_repository::OneToOneNatRepository,
         port_forward_repository::PortForwardRepository,
+        wireguard_repository::WireguardRepository,
     },
 };
 
@@ -79,6 +81,10 @@ impl FirewallGenerator {
             .await
             .map_err(|e| e.to_string())?;
 
+        let wg_config = WireguardRepository::get_config(pool)
+            .await
+            .map_err(|e| e.to_string())?;
+
         let port_forwards: Vec<PortForwardRule> = PortForwardRepository::list_rules(pool)
             .await
             .map_err(|e| e.to_string())?
@@ -122,6 +128,8 @@ impl FirewallGenerator {
 
         Self::generate_chain(&mut output, &rules, "INPUT", &addr_sets);
 
+        Self::generate_wireguard_input(&mut output, &wg_config);
+
         output.push_str("    }\n\n");
 
         // FORWARD
@@ -139,6 +147,8 @@ impl FirewallGenerator {
         Self::generate_port_forward_accepts(&mut output, &net_config, &port_forwards);
 
         Self::generate_chain(&mut output, &rules, "FORWARD", &addr_sets);
+
+        Self::generate_wireguard_forward(&mut output, &net_config, &wg_config);
 
         output.push_str("    }\n\n");
 
@@ -423,6 +433,87 @@ impl FirewallGenerator {
                     );
                 }
             }
+        }
+
+        output.push('\n');
+    }
+
+    /// Lets VPN clients reach the firewall itself: the WireGuard UDP port, and
+    /// ping from inside the tunnel. These come after the user's INPUT rules, so
+    /// a user rule that blocks something still wins.
+    fn generate_wireguard_input(output: &mut String, wg: &WireguardConfig) {
+        if !wg.enabled {
+            return;
+        }
+
+        let iface = wg.interface_name.trim();
+
+        if !Self::is_safe_iface(iface) {
+            eprintln!(
+                "WARNING: WireGuard interface name '{}' is not valid - skipping WireGuard allow rules",
+                iface
+            );
+            return;
+        }
+
+        if !(1..=65535).contains(&wg.listen_port) {
+            eprintln!(
+                "WARNING: WireGuard listen port {} is not valid - skipping WireGuard allow rules",
+                wg.listen_port
+            );
+            return;
+        }
+
+        output.push_str(&format!(
+            "        udp dport {} accept # WireGuard VPN\n",
+            wg.listen_port
+        ));
+        output.push_str(&format!(
+            "        iifname \"{}\" ip protocol icmp icmp type echo-request limit rate 10/second accept\n",
+            iface
+        ));
+        output.push_str(&format!(
+            "        iifname \"{}\" meta l4proto icmpv6 icmpv6 type echo-request limit rate 10/second accept\n",
+            iface
+        ));
+
+        output.push('\n');
+    }
+
+    /// VPN clients may go out to the internet (WAN) and into the LAN. Nothing is
+    /// opened in the other direction, so LAN hosts cannot start connections to
+    /// VPN clients unless the user adds a rule. Placed after the user's FORWARD
+    /// rules, so a user rule that blocks something still wins.
+    fn generate_wireguard_forward(
+        output: &mut String,
+        net_config: &NetworkConfig,
+        wg: &WireguardConfig,
+    ) {
+        if !wg.enabled {
+            return;
+        }
+
+        let iface = wg.interface_name.trim();
+
+        if !Self::is_safe_iface(iface) {
+            return;
+        }
+
+        let wan = net_config.wan_interface.trim();
+        let lan = net_config.lan_interface.trim();
+
+        if Self::is_safe_iface(wan) {
+            output.push_str(&format!(
+                "        iifname \"{}\" oifname \"{}\" accept # WireGuard VPN to internet\n",
+                iface, wan
+            ));
+        }
+
+        if Self::is_safe_iface(lan) {
+            output.push_str(&format!(
+                "        iifname \"{}\" oifname \"{}\" accept # WireGuard VPN to LAN\n",
+                iface, lan
+            ));
         }
 
         output.push('\n');
