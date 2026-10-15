@@ -412,6 +412,7 @@ pub async fn initialize_database(pool: &SqlitePool) -> Result<(), sqlx::Error> {
 
     super::address_schema::create_address_tables(pool).await?;
     super::wireguard_schema::create_wireguard_tables(pool).await?;
+    super::geoip_schema::create_geoip_tables(pool).await?;
 
     Ok(())
 }
@@ -602,5 +603,36 @@ mod tests {
             .unwrap();
         assert_eq!(row.get::<i64, _>("n"), 1);
         assert_eq!(row.get::<String, _>("u"), "admin");
+    }
+
+    #[tokio::test]
+    async fn fresh_database_has_the_geoip_tables_and_keeps_their_rows_across_a_second_init() {
+        let pool = memory_pool().await;
+        initialize_database(&pool).await.unwrap();
+
+        for table in ["geoip_policies", "geoip_datasets", "geoip_networks"] {
+            let found: i64 = sqlx::query_scalar(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name = ?",
+            )
+            .bind(table)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+            assert_eq!(found, 1, "{}", table);
+        }
+
+        sqlx::query("INSERT INTO geoip_policies (country_code, direction) VALUES ('CN', 'both')")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        initialize_database(&pool).await.unwrap();
+
+        let row = sqlx::query("SELECT country_code, direction FROM geoip_policies")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(row.get::<String, _>("country_code"), "CN");
+        assert_eq!(row.get::<String, _>("direction"), "both");
     }
 }
