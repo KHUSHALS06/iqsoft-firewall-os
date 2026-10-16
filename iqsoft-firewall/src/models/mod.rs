@@ -9,3 +9,4 @@ pub mod one_to_one_nat;
 pub mod port_forward;
 pub mod wireguard;
 pub mod route;
+pub mod dnsfilter;

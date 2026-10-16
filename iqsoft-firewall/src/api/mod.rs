@@ -12,3 +12,4 @@ pub mod geoip;
 pub mod monitor;
 pub mod route;
 pub mod wireguard;
+pub mod dnsfilter;

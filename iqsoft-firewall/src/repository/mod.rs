@@ -10,3 +10,4 @@ pub mod port_forward_repository;
 pub mod wireguard_repository;
 pub mod audit_repository;
 pub mod route_repository;
+pub mod dnsfilter_repository;

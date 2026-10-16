@@ -11,3 +11,4 @@ pub mod wireguard_service;
 pub mod audit_service;
 pub mod geoip_service;
 pub mod route_service;
+pub mod dnsfilter_service;

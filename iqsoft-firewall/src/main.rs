@@ -12,6 +12,7 @@ mod services;
 mod wireguard;
 
 use axum::{
+    extract::DefaultBodyLimit,
     middleware,
     routing::{get, post, put},
     Router,
@@ -25,6 +26,7 @@ use api::{
     auth as auth_api,
     dhcp as dhcp_api,
     dns as dns_api,
+    dnsfilter as dnsfilter_api,
     firewall as firewall_api,
     geoip as geoip_api,
     health,
@@ -44,6 +46,9 @@ use firewall::{commit::FirewallCommit, safe_commit::SafeCommit};
 use routing::commit::RouteCommit;
 use services::{auth_service::AuthService, login_throttle::LoginThrottle};
 use wireguard::commit::WireguardCommit;
+
+/// Block lists and country lists can be several MB, more than the 2 MB default.
+const MAX_IMPORT_BYTES: usize = 32 * 1024 * 1024;
 
 fn build_router(state: AppState) -> Router {
     let public = Router::new()
@@ -74,7 +79,38 @@ fn build_router(state: AppState) -> Router {
         .route(
             "/api/geoip/datasets/{country}",
             put(geoip_api::import_dataset)
+                .layer(DefaultBodyLimit::max(MAX_IMPORT_BYTES))
                 .delete(geoip_api::delete_dataset),
+        )
+        .route(
+            "/api/dnsfilter/settings",
+            get(dnsfilter_api::get_settings)
+                .put(dnsfilter_api::set_settings),
+        )
+        .route(
+            "/api/dnsfilter/categories",
+            get(dnsfilter_api::list_categories)
+                .post(dnsfilter_api::add_category),
+        )
+        .route(
+            "/api/dnsfilter/categories/{name}",
+            put(dnsfilter_api::update_category)
+                .delete(dnsfilter_api::delete_category),
+        )
+        .route(
+            "/api/dnsfilter/categories/{name}/domains",
+            put(dnsfilter_api::import_domains)
+                .layer(DefaultBodyLimit::max(MAX_IMPORT_BYTES)),
+        )
+        .route(
+            "/api/dnsfilter/rules",
+            get(dnsfilter_api::list_rules)
+                .post(dnsfilter_api::add_rule),
+        )
+        .route(
+            "/api/dnsfilter/rules/{id}",
+            put(dnsfilter_api::update_rule)
+                .delete(dnsfilter_api::delete_rule),
         )
         .route(
             "/api/rules",
