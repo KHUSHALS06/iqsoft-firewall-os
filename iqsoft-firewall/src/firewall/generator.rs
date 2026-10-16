@@ -15,6 +15,7 @@ use crate::{
         dhcp_repository::DhcpRepository,
         dns_repository::DnsRepository,
         firewall_repository::FirewallRepository,
+        geoip_repository::GeoipRepository,
         network_config_repository::NetworkConfigRepository,
         one_to_one_nat_repository::OneToOneNatRepository,
         port_forward_repository::PortForwardRepository,
@@ -63,6 +64,23 @@ struct AddrSet {
 /// Sets keyed by the lowercase object/group name (names are case-insensitive).
 type AddrSets = BTreeMap<String, AddrSet>;
 
+/// A country that is currently blocked, ready to be written as nftables sets.
+struct GeoipBlock {
+    /// Lowercase two-letter code, used in set names: `geoip_<code>_v4` / `_v6`.
+    code: String,
+    v4: Vec<String>,
+    v6: Vec<String>,
+    inbound: bool,
+    outbound: bool,
+}
+
+#[derive(Clone, Copy)]
+enum GeoipChain {
+    Input,
+    Forward,
+    Output,
+}
+
 impl FirewallGenerator {
     pub async fn generate(pool: &SqlitePool) -> Result<String, String> {
         let rules = FirewallRepository::list_rules(pool)
@@ -100,6 +118,7 @@ impl FirewallGenerator {
             .collect();
 
         let addr_sets = Self::load_address_sets(pool, &rules).await?;
+        let geoip = Self::load_geoip(pool).await?;
 
         let mut output = String::new();
 
@@ -109,6 +128,7 @@ impl FirewallGenerator {
         output.push_str("table inet filter {\n\n");
 
         Self::generate_address_sets(&mut output, &addr_sets);
+        Self::generate_geoip_sets(&mut output, &geoip);
 
         Self::generate_ddos_sets(&mut output, &DDOS_INPUT);
         Self::generate_ddos_sets(&mut output, &DDOS_FORWARD);
@@ -123,6 +143,8 @@ impl FirewallGenerator {
         output.push_str("        ct state established,related accept\n\n");
 
         Self::generate_ddos_rules(&mut output, &DDOS_INPUT);
+
+        Self::generate_geoip_rules(&mut output, &geoip, GeoipChain::Input);
 
         Self::generate_self_protection(&mut output, &net_config, &dhcp_config, &dns_config);
 
@@ -144,6 +166,8 @@ impl FirewallGenerator {
 
         Self::generate_ddos_rules(&mut output, &DDOS_FORWARD);
 
+        Self::generate_geoip_rules(&mut output, &geoip, GeoipChain::Forward);
+
         Self::generate_port_forward_accepts(&mut output, &net_config, &port_forwards);
 
         Self::generate_chain(&mut output, &rules, "FORWARD", &addr_sets);
@@ -155,6 +179,8 @@ impl FirewallGenerator {
         output.push_str("        type filter hook output priority 0;\n");
         output.push_str("        policy accept;\n\n");
 
+        Self::generate_geoip_rules(&mut output, &geoip, GeoipChain::Output);
+
         Self::generate_chain(&mut output, &rules, "OUTPUT", &addr_sets);
 
         output.push_str("    }\n");
@@ -164,6 +190,126 @@ impl FirewallGenerator {
         Self::generate_nat_table(&mut output, &net_config, &port_forwards, &one_to_one);
 
         Ok(output)
+    }
+
+    /// Loads every enabled country policy that has a stored network list.
+    /// A policy without a list (or with an empty one) is left out, because
+    /// nftables rejects empty sets and there is nothing to match anyway.
+    async fn load_geoip(pool: &SqlitePool) -> Result<Vec<GeoipBlock>, String> {
+        let policies = GeoipRepository::list_enabled_policies(pool)
+            .await
+            .map_err(|e| e.to_string())?;
+
+        let mut blocks = Vec::new();
+
+        for policy in policies {
+            if !policy.blocks_inbound() && !policy.blocks_outbound() {
+                continue;
+            }
+
+            let code = policy.country_code.to_ascii_lowercase();
+
+            if code.len() != 2 || !code.chars().all(|c| c.is_ascii_lowercase()) {
+                continue;
+            }
+
+            let v4 = GeoipRepository::list_networks(pool, &policy.country_code, "ipv4")
+                .await
+                .map_err(|e| e.to_string())?;
+            let v6 = GeoipRepository::list_networks(pool, &policy.country_code, "ipv6")
+                .await
+                .map_err(|e| e.to_string())?;
+
+            let v4 = Self::clean_geoip_networks(&v4, false);
+            let v6 = Self::clean_geoip_networks(&v6, true);
+
+            if v4.is_empty() && v6.is_empty() {
+                continue;
+            }
+
+            blocks.push(GeoipBlock {
+                code,
+                v4,
+                v6,
+                inbound: policy.blocks_inbound(),
+                outbound: policy.blocks_outbound(),
+            });
+        }
+
+        Ok(blocks)
+    }
+
+    /// Re-checks every stored network at generation time and keeps only the
+    /// ones that really are valid networks of the wanted family.
+    fn clean_geoip_networks(raw: &[String], want_v6: bool) -> Vec<String> {
+        raw.iter()
+            .filter_map(|text| text.parse::<IpNet>().ok())
+            .filter(|net| matches!(net, IpNet::V6(_)) == want_v6)
+            .map(|net| net.to_string())
+            .collect()
+    }
+
+    fn generate_geoip_sets(output: &mut String, blocks: &[GeoipBlock]) {
+        for block in blocks {
+            for (family, addr_type, elements) in [
+                ("v4", "ipv4_addr", &block.v4),
+                ("v6", "ipv6_addr", &block.v6),
+            ] {
+                if elements.is_empty() {
+                    continue;
+                }
+
+                output.push_str(&format!("    set geoip_{}_{} {{\n", block.code, family));
+                output.push_str(&format!("        type {};\n", addr_type));
+                output.push_str("        flags interval;\n");
+                output.push_str("        auto-merge;\n");
+                output.push_str(&format!(
+                    "        elements = {{ {} }}\n",
+                    elements.join(", ")
+                ));
+                output.push_str("    }\n\n");
+            }
+        }
+    }
+
+    /// Inbound blocks match the source address (INPUT and FORWARD), outbound
+    /// blocks match the destination address (FORWARD and OUTPUT).
+    fn generate_geoip_rules(output: &mut String, blocks: &[GeoipBlock], chain: GeoipChain) {
+        let mut wrote = false;
+
+        for block in blocks {
+            let (by_source, by_destination) = match chain {
+                GeoipChain::Input => (block.inbound, false),
+                GeoipChain::Forward => (block.inbound, block.outbound),
+                GeoipChain::Output => (false, block.outbound),
+            };
+
+            for (family, ip, elements) in [("v4", "ip", &block.v4), ("v6", "ip6", &block.v6)] {
+                if elements.is_empty() {
+                    continue;
+                }
+
+                if by_source {
+                    output.push_str(&format!(
+                        "        {} saddr @geoip_{}_{} counter drop\n",
+                        ip, block.code, family
+                    ));
+                    wrote = true;
+                }
+
+                if by_destination {
+                    output.push_str(&format!(
+                        "        {} daddr @geoip_{}_{} counter drop\n",
+                        ip, block.code, family
+                    ));
+                    wrote = true;
+                }
+            }
+        }
+
+        if wrote {
+            output.push('\n');
+        }
     }
 
     /// `@office_lan` -> Some("office_lan"). Anything else is a literal address.
@@ -1793,6 +1939,134 @@ table ip nat {
         assert!(first.contains("elements = { 10.0.0.1, 10.0.0.9 }"));
     }
 
+    async fn block_country(
+        pool: &SqlitePool,
+        code: &str,
+        direction: &str,
+        enabled: bool,
+        list: Option<&str>,
+    ) {
+        GeoipRepository::add_policy(
+            pool,
+            crate::models::geoip::GeoipPolicy {
+                id: None,
+                country_code: code.into(),
+                direction: direction.into(),
+                enabled,
+                comment: None,
+            },
+        )
+        .await
+        .unwrap();
+
+        if let Some(list) = list {
+            let zone = crate::models::geoip::parse_zone_list(list).unwrap();
+            GeoipRepository::replace_dataset(pool, code, Some("test"), &zone)
+                .await
+                .unwrap();
+        }
+    }
+
+    fn chains(text: &str) -> (&str, &str, &str) {
+        let input = &text[text.find("chain input").unwrap()..text.find("chain forward").unwrap()];
+        let forward = &text[text.find("chain forward").unwrap()..text.find("chain output").unwrap()];
+        let output = &text[text.find("chain output").unwrap()..text.find("table ip nat").unwrap()];
+        (input, forward, output)
+    }
+
+    #[tokio::test]
+    async fn inbound_country_block_matches_the_source_in_input_and_forward() {
+        let pool = memory_pool().await;
+        block_country(&pool, "CN", "inbound", true, Some("1.0.1.0/24\n2001:250::/32\n")).await;
+        let text = generate_text(&pool).await;
+        let (input, forward, output) = chains(&text);
+
+        assert!(text.contains("set geoip_cn_v4 {"));
+        assert!(text.contains("set geoip_cn_v6 {"));
+        assert!(text.contains("elements = { 1.0.1.0/24 }"));
+
+        assert!(input.contains("ip saddr @geoip_cn_v4 counter drop"));
+        assert!(input.contains("ip6 saddr @geoip_cn_v6 counter drop"));
+        assert!(forward.contains("ip saddr @geoip_cn_v4 counter drop"));
+        assert!(!input.contains("daddr @geoip"));
+        assert!(!forward.contains("daddr @geoip"));
+        assert!(!output.contains("geoip"));
+    }
+
+    #[tokio::test]
+    async fn outbound_country_block_matches_the_destination_in_forward_and_output() {
+        let pool = memory_pool().await;
+        block_country(&pool, "RU", "outbound", true, Some("5.8.0.0/16\n")).await;
+        let text = generate_text(&pool).await;
+        let (input, forward, output) = chains(&text);
+
+        assert!(forward.contains("ip daddr @geoip_ru_v4 counter drop"));
+        assert!(output.contains("ip daddr @geoip_ru_v4 counter drop"));
+        assert!(!input.contains("geoip"));
+        assert!(!forward.contains("saddr @geoip"));
+
+        // Only an IPv4 list was imported, so no IPv6 set or rule appears.
+        assert!(!text.contains("geoip_ru_v6"));
+    }
+
+    #[tokio::test]
+    async fn both_directions_use_source_and_destination() {
+        let pool = memory_pool().await;
+        block_country(&pool, "KP", "both", true, Some("175.45.176.0/22\n")).await;
+        let text = generate_text(&pool).await;
+        let (input, forward, output) = chains(&text);
+
+        assert!(input.contains("ip saddr @geoip_kp_v4 counter drop"));
+        assert!(forward.contains("ip saddr @geoip_kp_v4 counter drop"));
+        assert!(forward.contains("ip daddr @geoip_kp_v4 counter drop"));
+        assert!(output.contains("ip daddr @geoip_kp_v4 counter drop"));
+    }
+
+    #[tokio::test]
+    async fn disabled_or_listless_policies_add_nothing() {
+        let pool = memory_pool().await;
+        let before = generate_text(&pool).await;
+
+        block_country(&pool, "CN", "both", false, Some("1.0.1.0/24\n")).await;
+        block_country(&pool, "RU", "both", true, None).await;
+
+        assert_eq!(generate_text(&pool).await, before);
+    }
+
+    #[tokio::test]
+    async fn country_blocks_come_after_ddos_and_before_user_rules() {
+        let pool = baseline_pool().await;
+        block_country(&pool, "CN", "both", true, Some("1.0.1.0/24\n")).await;
+        let text = generate_text(&pool).await;
+        let (input, forward, _) = chains(&text);
+
+        let established = input.find("ct state established,related accept").unwrap();
+        let ddos = input.find("tcp flags & (fin|syn|rst|psh|ack|urg) == 0x0 drop").unwrap();
+        let geoip = input.find("saddr @geoip_cn_v4").unwrap();
+        let user_rule = input.find("iqsoft-rule-").unwrap();
+
+        assert!(established < ddos);
+        assert!(ddos < geoip);
+        assert!(geoip < user_rule);
+
+        let forward_geoip = forward.find("saddr @geoip_cn_v4").unwrap();
+        let forward_user = forward.find("iqsoft-rule-").unwrap();
+        assert!(forward_geoip < forward_user);
+    }
+
+    #[tokio::test]
+    async fn country_blocks_pass_nft_check_and_are_deterministic() {
+        let pool = baseline_pool().await;
+        block_country(&pool, "CN", "both", true, Some("1.0.1.0/24\n1.0.2.0/23\n2001:250::/32\n")).await;
+        block_country(&pool, "RU", "inbound", true, Some("5.8.0.0/16\n")).await;
+
+        let first = generate_text(&pool).await;
+        let second = generate_text(&pool).await;
+
+        assert_eq!(first, second);
+        nft_check(&first);
+    }
+
     #[tokio::test]
     async fn wireguard_disabled_adds_nothing_to_the_ruleset() {
         let pool = memory_pool().await;
@@ -1865,4 +2139,3 @@ table ip nat {
     }
 
 }
-

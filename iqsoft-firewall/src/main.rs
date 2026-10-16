@@ -26,6 +26,7 @@ use api::{
     dhcp as dhcp_api,
     dns as dns_api,
     firewall as firewall_api,
+    geoip as geoip_api,
     health,
     monitor as monitor_api,
     network_config as network_config_api,
@@ -56,6 +57,25 @@ fn build_router(state: AppState) -> Router {
             post(auth_api::change_password),
         )
         .route("/api/audit", get(audit_api::list_audit))
+        .route(
+            "/api/geoip/policies",
+            get(geoip_api::list_policies)
+                .post(geoip_api::add_policy),
+        )
+        .route(
+            "/api/geoip/policies/{id}",
+            put(geoip_api::update_policy)
+                .delete(geoip_api::delete_policy),
+        )
+        .route(
+            "/api/geoip/datasets",
+            get(geoip_api::list_datasets),
+        )
+        .route(
+            "/api/geoip/datasets/{country}",
+            put(geoip_api::import_dataset)
+                .delete(geoip_api::delete_dataset),
+        )
         .route(
             "/api/rules",
             get(firewall_api::list_rules)
