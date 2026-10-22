@@ -9,6 +9,7 @@ use crate::{
         network_config::NetworkConfig,
         one_to_one_nat::OneToOneNatRule,
         port_forward::PortForwardRule,
+        sni::SniSettings,
         wireguard::WireguardConfig,
     },
     repository::{
@@ -21,8 +22,10 @@ use crate::{
         network_config_repository::NetworkConfigRepository,
         one_to_one_nat_repository::OneToOneNatRepository,
         port_forward_repository::PortForwardRepository,
+        sni_repository::SniRepository,
         wireguard_repository::WireguardRepository,
     },
+    sni::queue::{SNI_QUEUE_NUM, SNI_TRUST_MARK},
 };
 
 use ipnet::IpNet;
@@ -112,6 +115,10 @@ impl FirewallGenerator {
             .await
             .map_err(|e| e.to_string())?;
 
+        let sni_settings = SniRepository::get_settings(pool)
+            .await
+            .map_err(|e| e.to_string())?;
+
         let port_forwards: Vec<PortForwardRule> = PortForwardRepository::list_rules(pool)
             .await
             .map_err(|e| e.to_string())?
@@ -172,6 +179,9 @@ impl FirewallGenerator {
         // Replies to allowed connections (including replies from a port-forwarded
         // server back to the internet) must be let through.
         output.push_str("        ct state invalid drop\n");
+
+        Self::generate_sni_rules(&mut output, &sni_settings);
+
         output.push_str("        ct state established,related accept\n\n");
 
         Self::generate_ddos_rules(&mut output, &DDOS_FORWARD);
@@ -451,6 +461,25 @@ impl FirewallGenerator {
             output.push_str("        flags dynamic;\n");
             output.push_str("    }\n\n");
         }
+    }
+
+    fn generate_sni_rules(output: &mut String, settings: &SniSettings) {
+        if !settings.enabled {
+            return;
+        }
+
+        if settings.block_quic {
+            output.push_str("        udp dport 443 counter drop\n");
+        }
+
+        output.push_str(&format!(
+            "        tcp dport 443 ct mark & 0x{:08x} != 0x{:08x} counter queue num {} bypass\n",
+            SNI_TRUST_MARK, SNI_TRUST_MARK, SNI_QUEUE_NUM
+        ));
+        output.push_str(&format!(
+            "        meta mark & 0x{:08x} == 0x{:08x} ct mark set ct mark | 0x{:08x}\n\n",
+            SNI_TRUST_MARK, SNI_TRUST_MARK, SNI_TRUST_MARK
+        ));
     }
 
     fn generate_ddos_rules(output: &mut String, limits: &DdosLimits) {
@@ -2292,4 +2321,85 @@ table ip nat {
         assert_eq!(FirewallGenerator::wireguard_input_block(&config), "");
     }
 
+    async fn set_sni(pool: &SqlitePool, enabled: bool, block_quic: bool) {
+        SniRepository::set_settings(
+            pool,
+            &SniSettings {
+                enabled,
+                use_dns_filter_lists: true,
+                no_name_action: "allow".into(),
+                block_malformed: true,
+                block_quic,
+            },
+        )
+        .await
+        .unwrap();
+    }
+
+    #[tokio::test]
+    async fn sni_rules_are_absent_while_the_filter_is_off() {
+        let pool = memory_pool().await;
+        let text = generate_text(&pool).await;
+
+        assert!(!text.contains("queue num"));
+        assert!(!text.contains("0x04000000"));
+        assert!(!text.contains("udp dport 443"));
+    }
+
+    #[tokio::test]
+    async fn sni_rules_sit_in_forward_before_established_traffic_is_accepted() {
+        let pool = memory_pool().await;
+        set_sni(&pool, true, false).await;
+        let text = generate_text(&pool).await;
+        let (input, forward, output) = chains(&text);
+
+        assert!(!input.contains("queue num"));
+        assert!(!output.contains("queue num"));
+
+        let invalid = forward.find("ct state invalid drop").unwrap();
+        let queue = forward
+            .find("tcp dport 443 ct mark & 0x04000000 != 0x04000000 counter queue num 100 bypass")
+            .unwrap();
+        let mark = forward
+            .find("meta mark & 0x04000000 == 0x04000000 ct mark set ct mark | 0x04000000")
+            .unwrap();
+        let established = forward.find("ct state established,related accept").unwrap();
+
+        assert!(invalid < queue);
+        assert!(queue < mark);
+        assert!(mark < established);
+        assert!(!text.contains("udp dport 443"));
+    }
+
+    #[tokio::test]
+    async fn quic_is_dropped_only_when_asked_and_before_established_traffic() {
+        let pool = memory_pool().await;
+        set_sni(&pool, true, true).await;
+        let text = generate_text(&pool).await;
+        let (_, forward, _) = chains(&text);
+
+        let quic = forward.find("udp dport 443 counter drop").unwrap();
+        let established = forward.find("ct state established,related accept").unwrap();
+        assert!(quic < established);
+
+        set_sni(&pool, false, true).await;
+        let text = generate_text(&pool).await;
+        assert!(!text.contains("udp dport 443"));
+    }
+
+    #[tokio::test]
+    async fn sni_rules_do_not_change_the_other_chains_or_nat() {
+        let plain = baseline_pool().await;
+        let with_sni = baseline_pool().await;
+        set_sni(&with_sni, true, true).await;
+
+        let a = generate_text(&plain).await;
+        let b = generate_text(&with_sni).await;
+        let (a_in, _, a_out) = chains(&a);
+        let (b_in, _, b_out) = chains(&b);
+
+        assert_eq!(a_in, b_in);
+        assert_eq!(a_out, b_out);
+        assert_eq!(a[a.find("table ip nat").unwrap()..], b[b.find("table ip nat").unwrap()..]);
+    }
 }

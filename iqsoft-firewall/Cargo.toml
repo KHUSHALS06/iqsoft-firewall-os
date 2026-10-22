@@ -6,6 +6,8 @@ edition = "2024"
 [dependencies]
 tokio = { version = "1", features = ["full"] }
 
+nfq = "0.2"
+
 axum = "0.8"
 
 axum-server = { version = "0.7", default-features = false, features = ["tls-rustls-no-provider"] }

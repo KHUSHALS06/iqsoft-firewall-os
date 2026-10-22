@@ -243,7 +243,9 @@ mod tests {
 
     #[test]
     fn a_packet_without_data_has_an_empty_payload() {
-        let parsed = parse_tcp_packet(&simple_v4(b"")).unwrap();
+//        let parsed = parse_tcp_packet(&simple_v4(b"")).unwrap();
+        let packet = simple_v4(b"");
+        let parsed = parse_tcp_packet(&packet).unwrap();
         assert!(parsed.payload.is_empty());
     }
 
