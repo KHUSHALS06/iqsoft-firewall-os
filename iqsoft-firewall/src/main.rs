@@ -9,6 +9,7 @@ mod monitor;
 mod repository;
 mod routing;
 mod services;
+mod sni;
 mod wireguard;
 
 use axum::{
@@ -35,6 +36,7 @@ use api::{
     one_to_one_nat as one_to_one_nat_api,
     port_forward as port_forward_api,
     route as route_api,
+    sni as sni_api,
     wireguard as wireguard_api,
 };
 use app_state::AppState;
@@ -111,6 +113,21 @@ fn build_router(state: AppState) -> Router {
             "/api/dnsfilter/rules/{id}",
             put(dnsfilter_api::update_rule)
                 .delete(dnsfilter_api::delete_rule),
+        )
+        .route(
+            "/api/sni/settings",
+            get(sni_api::get_settings)
+                .put(sni_api::set_settings),
+        )
+        .route(
+            "/api/sni/rules",
+            get(sni_api::list_rules)
+                .post(sni_api::add_rule),
+        )
+        .route(
+            "/api/sni/rules/{id}",
+            put(sni_api::update_rule)
+                .delete(sni_api::delete_rule),
         )
         .route(
             "/api/rules",

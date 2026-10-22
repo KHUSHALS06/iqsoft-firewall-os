@@ -4,3 +4,4 @@ pub mod geoip_schema;
 pub mod init;
 pub mod wireguard_schema;
 pub mod dnsfilter_schema;
+pub mod sni_schema;

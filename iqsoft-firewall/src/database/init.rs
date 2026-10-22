@@ -414,6 +414,7 @@ pub async fn initialize_database(pool: &SqlitePool) -> Result<(), sqlx::Error> {
     super::wireguard_schema::create_wireguard_tables(pool).await?;
     super::geoip_schema::create_geoip_tables(pool).await?;
     super::dnsfilter_schema::create_dnsfilter_tables(pool).await?;
+    super::sni_schema::create_sni_tables(pool).await?; // <-- the new line
 
     Ok(())
 }

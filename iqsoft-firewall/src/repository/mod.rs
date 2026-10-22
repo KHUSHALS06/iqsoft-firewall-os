@@ -11,3 +11,4 @@ pub mod wireguard_repository;
 pub mod audit_repository;
 pub mod route_repository;
 pub mod dnsfilter_repository;
+pub mod sni_repository;
