@@ -7,7 +7,7 @@ use axum::{
 use serde_json::json;
 use crate::{
     app_state::AppState,
-    dns::{commit::DnsCommit, generator::DnsGenerator},
+    dns::{commit::DnsCommit, filter::DnsFilterData, generator::DnsGenerator},
     models::dns::{DnsConfig, DnsStaticRecord},
     repository::dns_repository::DnsRepository,
     services::dns_service::DnsService,
@@ -94,7 +94,17 @@ pub async fn generate_config(State(state): State<AppState>) -> impl IntoResponse
         }
     };
 
-    match DnsGenerator::render(&config, &records) {
+    let filter = match DnsFilterData::load(&state.db).await {
+        Ok(f) => f,
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": e })),
+            )
+        }
+    };
+
+    match DnsGenerator::render(&config, &records, &filter) {
         Ok(rendered) => (StatusCode::OK, Json(json!({ "config": rendered }))),
         Err(e) => (StatusCode::BAD_REQUEST, Json(json!({ "error": e }))),
     }

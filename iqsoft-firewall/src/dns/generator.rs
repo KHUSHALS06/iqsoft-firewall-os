@@ -1,3 +1,4 @@
+use crate::dns::filter::DnsFilterData;
 use crate::models::dhcp::DhcpSnapshot;
 use crate::models::dns::{DnsConfig, DnsStaticRecord};
 use crate::services::dns_service::DnsService;
@@ -12,6 +13,7 @@ impl DnsGenerator {
     pub fn render(
         config: &DnsConfig,
         records: &[DnsStaticRecord],
+        filter: &DnsFilterData,
     ) -> Result<String, String> {
         let mut out = String::new();
 
@@ -23,6 +25,7 @@ impl DnsGenerator {
 
         out.push_str("no-resolv\n");
         out.push_str("no-hosts\n");
+        out.push_str("bind-interfaces\n");
 
         for iface in &config.listen_interfaces {
             out.push_str(&format!("interface={}\n", iface));
@@ -52,6 +55,8 @@ impl DnsGenerator {
         if config.use_dhcp_hostnames {
             out.push_str(&Self::render_dhcp_hostnames(records)?);
         }
+
+        out.push_str(&filter.render());
 
         Ok(out)
     }

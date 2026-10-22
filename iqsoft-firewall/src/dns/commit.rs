@@ -1,3 +1,4 @@
+use crate::dns::filter::DnsFilterData;
 use crate::dns::generator::DnsGenerator;
 use crate::models::dns::DnsSnapshot;
 use crate::repository::dns_repository::DnsRepository;
@@ -38,7 +39,9 @@ impl DnsCommit {
             }
         }
 
-        let rendered = DnsGenerator::render(&config, &records)?;
+        let filter = DnsFilterData::load(pool).await?;
+
+        let rendered = DnsGenerator::render(&config, &records, &filter)?;
         let enabled = config.enabled;
 
         let snapshot = DnsSnapshot { config, records };

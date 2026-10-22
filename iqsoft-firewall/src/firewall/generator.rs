@@ -2,6 +2,7 @@ use crate::{
     models::{
         dhcp::DhcpConfig,
         dns::DnsConfig,
+        dnsfilter::DnsFilterSettings,
         firewall_rule::{
             normalize_days, normalize_mac, normalize_rate_limit, normalize_time_of_day, FirewallRule,
         },
@@ -14,6 +15,7 @@ use crate::{
         address_repository::{AddressRepository, REF_PREFIX},
         dhcp_repository::DhcpRepository,
         dns_repository::DnsRepository,
+        dnsfilter_repository::DnsFilterRepository,
         firewall_repository::FirewallRepository,
         geoip_repository::GeoipRepository,
         network_config_repository::NetworkConfigRepository,
@@ -43,6 +45,9 @@ const DDOS_INPUT: DdosLimits = DdosLimits {
     syn_burst: 50,
     max_connections: 100,
 };
+
+const DOH_V4: &str = "1.1.1.1, 1.0.0.1, 8.8.8.8, 8.8.4.4, 9.9.9.9, 149.112.112.112, 208.67.222.222, 208.67.220.220, 94.140.14.14, 94.140.15.15";
+const DOH_V6: &str = "2606:4700:4700::1111, 2606:4700:4700::1001, 2001:4860:4860::8888, 2001:4860:4860::8844, 2620:fe::fe";
 
 const DDOS_FORWARD: DdosLimits = DdosLimits {
     tag: "fwd",
@@ -99,6 +104,10 @@ impl FirewallGenerator {
             .await
             .map_err(|e| e.to_string())?;
 
+        let dns_filter = DnsFilterRepository::get_settings(pool)
+            .await
+            .map_err(|e| e.to_string())?;
+
         let wireguard_config = WireguardRepository::get_config(pool)
             .await
             .map_err(|e| e.to_string())?;
@@ -119,6 +128,7 @@ impl FirewallGenerator {
 
         let addr_sets = Self::load_address_sets(pool, &rules).await?;
         let geoip = Self::load_geoip(pool).await?;
+        let dns_enforce = Self::dns_enforce_interfaces(&dns_config, &dns_filter);
 
         let mut output = String::new();
 
@@ -166,6 +176,8 @@ impl FirewallGenerator {
 
         Self::generate_ddos_rules(&mut output, &DDOS_FORWARD);
 
+        Self::generate_dns_enforce_forward(&mut output, &dns_enforce);
+
         Self::generate_geoip_rules(&mut output, &geoip, GeoipChain::Forward);
 
         Self::generate_port_forward_accepts(&mut output, &net_config, &port_forwards);
@@ -187,7 +199,7 @@ impl FirewallGenerator {
 
         output.push_str("}\n\n");
 
-        Self::generate_nat_table(&mut output, &net_config, &port_forwards, &one_to_one);
+        Self::generate_nat_table(&mut output, &net_config, &port_forwards, &one_to_one, &dns_enforce);
 
         Ok(output)
     }
@@ -547,6 +559,42 @@ impl FirewallGenerator {
         }
     }
 
+    fn dns_enforce_interfaces(dns_config: &DnsConfig, filter: &DnsFilterSettings) -> Vec<String> {
+        if !dns_config.enabled || !filter.enabled || !filter.enforce_dns {
+            return Vec::new();
+        }
+
+        let mut seen = BTreeSet::new();
+
+        dns_config
+            .listen_interfaces
+            .iter()
+            .map(|iface| iface.trim())
+            .filter(|iface| Self::is_safe_iface(iface))
+            .filter(|iface| seen.insert(iface.to_string()))
+            .map(|iface| iface.to_string())
+            .collect()
+    }
+
+    fn generate_dns_enforce_forward(output: &mut String, interfaces: &[String]) {
+        if interfaces.is_empty() {
+            return;
+        }
+
+        for iface in interfaces {
+            output.push_str(&format!("        iifname \"{}\" udp dport 53 drop # DNS enforcement\n", iface));
+            output.push_str(&format!("        iifname \"{}\" tcp dport 53 drop # DNS enforcement\n", iface));
+            output.push_str(&format!("        iifname \"{}\" tcp dport 853 drop # DNS-over-TLS\n", iface));
+            output.push_str(&format!("        iifname \"{}\" udp dport 853 drop # DNS-over-QUIC\n", iface));
+            output.push_str(&format!("        iifname \"{}\" ip daddr {{ {} }} tcp dport 443 drop # known DoH\n", iface, DOH_V4));
+            output.push_str(&format!("        iifname \"{}\" ip daddr {{ {} }} udp dport 443 drop # known DoH\n", iface, DOH_V4));
+            output.push_str(&format!("        iifname \"{}\" ip6 daddr {{ {} }} tcp dport 443 drop # known DoH\n", iface, DOH_V6));
+            output.push_str(&format!("        iifname \"{}\" ip6 daddr {{ {} }} udp dport 443 drop # known DoH\n", iface, DOH_V6));
+        }
+
+        output.push('\n');
+    }
+
     fn generate_self_protection(
         output: &mut String,
         net_config: &NetworkConfig,
@@ -711,6 +759,7 @@ impl FirewallGenerator {
         net_config: &NetworkConfig,
         port_forwards: &[PortForwardRule],
         one_to_one: &[OneToOneNatRule],
+        dns_enforce: &[String],
     ) {
         let has_forwards = !port_forwards.is_empty();
         let usable_o2o: Vec<&OneToOneNatRule> = one_to_one
@@ -718,7 +767,7 @@ impl FirewallGenerator {
             .filter(|r| Self::o2o_is_usable(r))
             .collect();
 
-        if !net_config.nat_enabled && !has_forwards && usable_o2o.is_empty() {
+        if !net_config.nat_enabled && !has_forwards && usable_o2o.is_empty() && dns_enforce.is_empty() {
             return;
         }
 
@@ -733,6 +782,17 @@ impl FirewallGenerator {
         output.push_str("    chain prerouting {\n");
         output.push_str("        type nat hook prerouting priority -100;\n");
         output.push_str("        policy accept;\n\n");
+
+        for iface in dns_enforce {
+            output.push_str(&format!(
+                "        iifname \"{}\" fib daddr type != local udp dport 53 redirect to :53 # DNS enforcement\n",
+                iface
+            ));
+            output.push_str(&format!(
+                "        iifname \"{}\" fib daddr type != local tcp dport 53 redirect to :53 # DNS enforcement\n",
+                iface
+            ));
+        }
 
         // 1:1 NAT goes first: a whole-host mapping must win over any port forward.
         for rule in &usable_o2o {
@@ -1127,6 +1187,7 @@ impl FirewallGenerator {
 mod tests {
     use super::*;
     use crate::database::init::initialize_database;
+    use crate::models::dnsfilter::DnsFilterSettings;
     use sqlx::sqlite::SqlitePoolOptions;
 
     async fn memory_pool() -> SqlitePool {
@@ -1368,6 +1429,99 @@ table ip nat {
         let text = FirewallGenerator::generate(&pool).await.unwrap();
 
         assert_eq!(without_environment_lines(&text), BASELINE);
+    }
+
+    async fn enable_dns_enforcement(pool: &SqlitePool, interfaces: &[&str], dns_on: bool, filter_on: bool, enforce: bool) {
+        DnsRepository::set_config(
+            pool,
+            DnsConfig {
+                enabled: dns_on,
+                listen_interfaces: interfaces.iter().map(|i| i.to_string()).collect(),
+                upstream_servers: vec!["1.1.1.1".to_string()],
+                local_domain: None,
+                use_dhcp_hostnames: false,
+            },
+        )
+        .await
+        .unwrap();
+
+        DnsFilterRepository::set_settings(
+            pool,
+            &DnsFilterSettings {
+                enabled: filter_on,
+                block_response: "nxdomain".to_string(),
+                safe_search: false,
+                enforce_dns: enforce,
+            },
+        )
+        .await
+        .unwrap();
+    }
+
+    #[tokio::test]
+    async fn dns_enforcement_redirects_in_nat_and_drops_bypasses_in_forward() {
+        let pool = baseline_pool().await;
+        enable_dns_enforcement(&pool, &["enp2s0"], true, true, true).await;
+
+        let text = generate_text(&pool).await;
+        let (_, forward, _) = chains(&text);
+        let nat = &text[text.find("table ip nat").unwrap()..];
+
+        assert!(nat.contains("iifname \"enp2s0\" fib daddr type != local udp dport 53 redirect to :53"));
+        assert!(nat.contains("iifname \"enp2s0\" fib daddr type != local tcp dport 53 redirect to :53"));
+        assert!(forward.contains("iifname \"enp2s0\" tcp dport 853 drop"));
+        assert!(forward.contains("iifname \"enp2s0\" udp dport 53 drop"));
+        assert!(forward.contains("ip daddr { 1.1.1.1"));
+        assert!(forward.contains("ip6 daddr { 2606:4700:4700::1111"));
+
+        let established = forward.find("ct state established,related accept").unwrap();
+        let first_drop = forward.find("udp dport 53 drop").unwrap();
+        let first_user_rule = forward.find("iqsoft-rule").unwrap();
+        assert!(established < first_drop);
+        assert!(first_drop < first_user_rule);
+
+        nft_check(&text);
+    }
+
+    #[tokio::test]
+    async fn dns_enforcement_needs_dns_filter_and_enforce_all_on() {
+        for (dns_on, filter_on, enforce) in [(false, true, true), (true, false, true), (true, true, false)] {
+            let pool = baseline_pool().await;
+            enable_dns_enforcement(&pool, &["enp2s0"], dns_on, filter_on, enforce).await;
+
+            let text = generate_text(&pool).await;
+
+            assert!(!text.contains("DNS enforcement"));
+            assert!(!text.contains("known DoH"));
+        }
+    }
+
+    #[tokio::test]
+    async fn dns_enforcement_skips_bad_and_duplicate_interface_names() {
+        let pool = baseline_pool().await;
+        enable_dns_enforcement(&pool, &["enp2s0", "enp2s0", "bad name;", ""], true, true, true).await;
+
+        let text = generate_text(&pool).await;
+
+        assert_eq!(text.matches("udp dport 53 redirect to :53").count(), 1);
+        assert!(!text.contains("bad name"));
+    }
+
+    #[tokio::test]
+    async fn dns_enforcement_creates_the_nat_table_even_when_nat_is_off() {
+        let pool = baseline_pool().await;
+        sqlx::query("UPDATE network_config SET nat_enabled = 0")
+            .execute(&pool)
+            .await
+            .unwrap();
+        enable_dns_enforcement(&pool, &["enp2s0"], true, true, true).await;
+
+        let text = generate_text(&pool).await;
+
+        assert!(text.contains("table ip nat"));
+        assert!(text.contains("redirect to :53"));
+        assert!(!text.contains("masquerade"));
+        nft_check(&text);
     }
 
     #[tokio::test]
