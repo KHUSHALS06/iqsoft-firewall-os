@@ -50,6 +50,22 @@ pub async fn create_sni_tables(pool: &SqlitePool) -> Result<(), sqlx::Error> {
     .execute(pool)
     .await?;
 
+    // The L7 app catalog choices. The list of apps and their domains lives in
+    // code (models/appcontrol.rs). This table only remembers what the person
+    // chose for an app. No row means "default": the app is not managed.
+    sqlx::query(
+        r#"
+        CREATE TABLE IF NOT EXISTS sni_apps (
+            app_id    TEXT PRIMARY KEY
+                      CHECK (length(app_id) BETWEEN 2 AND 32
+                             AND app_id NOT GLOB '*[^a-z0-9]*'),
+            action    TEXT NOT NULL CHECK (action IN ('block', 'allow'))
+        );
+        "#,
+    )
+    .execute(pool)
+    .await?;
+
     Ok(())
 }
 
@@ -155,5 +171,39 @@ mod tests {
             .execute(&pool)
             .await
             .unwrap();
+    }
+
+    #[tokio::test]
+    async fn app_choices_are_one_per_app_and_limited_to_block_or_allow() {
+        let pool = memory_pool().await;
+
+        sqlx::query("INSERT INTO sni_apps (app_id, action) VALUES ('youtube', 'block')")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        // A second row for the same app is refused.
+        assert!(
+            sqlx::query("INSERT INTO sni_apps (app_id, action) VALUES ('youtube', 'allow')")
+                .execute(&pool)
+                .await
+                .is_err()
+        );
+
+        // "default" is the absence of a row, never a stored value.
+        assert!(
+            sqlx::query("INSERT INTO sni_apps (app_id, action) VALUES ('zoom', 'default')")
+                .execute(&pool)
+                .await
+                .is_err()
+        );
+
+        for bad in ["Zoom", "z", "zo om", "zoom;", ""] {
+            let result = sqlx::query("INSERT INTO sni_apps (app_id, action) VALUES (?, 'block')")
+                .bind(bad)
+                .execute(&pool)
+                .await;
+            assert!(result.is_err(), "accepted bad app id '{}'", bad);
+        }
     }
 }
