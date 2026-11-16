@@ -1943,11 +1943,11 @@ table ip nat {
         without_environment_lines(&FirewallGenerator::generate(pool).await.unwrap())
     }
 
-    /// Runs the ruleset through the real `nft --check` when it can.
-    /// Skipped when nft is missing or when we are not allowed to talk to the kernel.
     fn nft_check(ruleset: &str) {
         use std::io::Write;
         use std::process::{Command, Stdio};
+
+        let required = std::env::var("IQSOFT_REQUIRE_NFT").is_ok();
 
         let Ok(mut child) = Command::new("nft")
             .args(["--check", "--file", "-"])
@@ -1956,6 +1956,8 @@ table ip nat {
             .stderr(Stdio::piped())
             .spawn()
         else {
+            assert!(!required, "nft is not installed but IQSOFT_REQUIRE_NFT is set");
+            eprintln!("SKIPPED nft --check: nft not found");
             return;
         };
 
@@ -1964,6 +1966,8 @@ table ip nat {
         let err = String::from_utf8_lossy(&out.stderr);
 
         if err.contains("Operation not permitted") {
+            assert!(!required, "nft --check not permitted but IQSOFT_REQUIRE_NFT is set");
+            eprintln!("SKIPPED nft --check: operation not permitted");
             return;
         }
 
