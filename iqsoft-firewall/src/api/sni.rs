@@ -10,7 +10,14 @@ use crate::{
     app_state::AppState,
     models::sni::{SniRule, SniSettings},
     services::sni_service::SniService,
+    sni::queue,
 };
+
+async fn apply_policy(state: &AppState) {
+    if let Err(e) = queue::reload(&state.db).await {
+        eprintln!("ERROR: could not reload the SNI filter policy: {}", e);
+    }
+}
 
 // ---------- settings ----------
 
@@ -29,7 +36,10 @@ pub async fn set_settings(
     Json(settings): Json<SniSettings>,
 ) -> impl IntoResponse {
     match SniService::set_settings(&state.db, settings).await {
-        Ok(_) => (StatusCode::OK, Json(json!({ "status": "ok" }))),
+        Ok(_) => {
+            apply_policy(&state).await;
+            (StatusCode::OK, Json(json!({ "status": "ok" })))
+        }
         Err(e) => (StatusCode::BAD_REQUEST, Json(json!({ "error": e }))),
     }
 }
@@ -51,7 +61,10 @@ pub async fn add_rule(
     Json(rule): Json<SniRule>,
 ) -> impl IntoResponse {
     match SniService::add_rule(&state.db, rule).await {
-        Ok(_) => (StatusCode::OK, Json(json!({ "status": "ok" }))),
+        Ok(_) => {
+            apply_policy(&state).await;
+            (StatusCode::OK, Json(json!({ "status": "ok" })))
+        }
         Err(e) => (StatusCode::BAD_REQUEST, Json(json!({ "error": e }))),
     }
 }
@@ -62,7 +75,10 @@ pub async fn update_rule(
     Json(rule): Json<SniRule>,
 ) -> impl IntoResponse {
     match SniService::update_rule(&state.db, id, rule).await {
-        Ok(_) => (StatusCode::OK, Json(json!({ "status": "ok" }))),
+        Ok(_) => {
+            apply_policy(&state).await;
+            (StatusCode::OK, Json(json!({ "status": "ok" })))
+        }
         Err(e) => (StatusCode::BAD_REQUEST, Json(json!({ "error": e }))),
     }
 }
@@ -72,7 +88,10 @@ pub async fn delete_rule(
     State(state): State<AppState>,
 ) -> impl IntoResponse {
     match SniService::delete_rule(&state.db, id).await {
-        Ok(_) => (StatusCode::OK, Json(json!({ "status": "ok" }))),
+        Ok(_) => {
+            apply_policy(&state).await;
+            (StatusCode::OK, Json(json!({ "status": "ok" })))
+        }
         Err(e) => (StatusCode::BAD_REQUEST, Json(json!({ "error": e }))),
     }
 }

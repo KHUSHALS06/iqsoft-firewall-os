@@ -12,7 +12,7 @@ use crate::{
 use sqlx::SqlitePool;
 use std::{
     io::ErrorKind,
-    sync::{Arc, RwLock},
+    sync::{Arc, OnceLock, RwLock},
     time::{Duration, Instant},
 };
 
@@ -23,6 +23,8 @@ pub const SNI_TRUST_MARK: u32 = 0x0400_0000;
 const QUEUE_MAX_LEN: u32 = 4096;
 
 const RETRY_DELAY: Duration = Duration::from_millis(200);
+
+static SHARED: OnceLock<PolicyHandle> = OnceLock::new();
 
 #[derive(Clone)]
 pub struct PolicyHandle {
@@ -61,6 +63,28 @@ impl PolicyHandle {
         self.set(policy);
 
         Ok(rules)
+    }
+}
+
+pub fn shared_policy() -> PolicyHandle {
+    SHARED.get_or_init(PolicyHandle::disabled).clone()
+}
+
+pub async fn reload(pool: &SqlitePool) -> Result<usize, String> {
+    shared_policy().reload(pool).await
+}
+
+pub async fn init(pool: &SqlitePool) {
+    let policy = shared_policy();
+
+    match policy.reload(pool).await {
+        Ok(rules) => println!("SNI filter policy loaded ({} rules)", rules),
+        Err(e) => eprintln!("ERROR: could not load the SNI filter policy: {}", e),
+    }
+
+    match start(policy) {
+        Ok(()) => println!("SNI filter listening on queue {}", SNI_QUEUE_NUM),
+        Err(e) => eprintln!("ERROR: SNI filter is not active: {}", e),
     }
 }
 
@@ -334,6 +358,16 @@ mod tests {
         judge(&mut e, &handle.get(), &ipv4_tcp(50004, 100, SYN, &[]), now);
         let second = judge(&mut e, &handle.get(), &ipv4_tcp(50004, 101, ACK_PSH, &hello), now);
         assert_eq!(second.verdict, Verdict::Drop);
+    }
+
+    #[test]
+    fn clones_of_a_handle_see_the_same_policy() {
+        let handle = PolicyHandle::disabled();
+        let other = handle.clone();
+
+        other.set(policy_with(true, true, &[("tiktok.com", "block")]));
+
+        assert!(handle.get().is_enabled());
     }
 
     #[test]

@@ -361,6 +361,8 @@ async fn main() {
         .await
         .expect("Failed to initialize admin user");
 
+    sni::queue::init(&db).await;
+
     let commit_lock = std::sync::Arc::new(tokio::sync::Mutex::new(()));
 
     match FirewallCommit::restore_on_boot(&commit_lock).await {

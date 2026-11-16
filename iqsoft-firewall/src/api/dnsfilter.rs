@@ -12,7 +12,14 @@ use crate::{
         DnsFilterCategory, DnsFilterImportRequest, DnsFilterRule, DnsFilterSettings,
     },
     services::dnsfilter_service::DnsFilterService,
+    sni::queue,
 };
+
+async fn apply_sni_policy(state: &AppState) {
+    if let Err(e) = queue::reload(&state.db).await {
+        eprintln!("ERROR: could not reload the SNI filter policy: {}", e);
+    }
+}
 
 // ---------- settings ----------
 
@@ -53,7 +60,10 @@ pub async fn add_category(
     Json(category): Json<DnsFilterCategory>,
 ) -> impl IntoResponse {
     match DnsFilterService::add_category(&state.db, category).await {
-        Ok(_) => (StatusCode::OK, Json(json!({ "status": "ok" }))),
+        Ok(_) => {
+            apply_sni_policy(&state).await;
+            (StatusCode::OK, Json(json!({ "status": "ok" })))
+        }
         Err(e) => (StatusCode::BAD_REQUEST, Json(json!({ "error": e }))),
     }
 }
@@ -64,7 +74,10 @@ pub async fn update_category(
     Json(category): Json<DnsFilterCategory>,
 ) -> impl IntoResponse {
     match DnsFilterService::update_category(&state.db, &name, category).await {
-        Ok(_) => (StatusCode::OK, Json(json!({ "status": "ok" }))),
+        Ok(_) => {
+            apply_sni_policy(&state).await;
+            (StatusCode::OK, Json(json!({ "status": "ok" })))
+        }
         Err(e) => (StatusCode::BAD_REQUEST, Json(json!({ "error": e }))),
     }
 }
@@ -74,7 +87,10 @@ pub async fn delete_category(
     State(state): State<AppState>,
 ) -> impl IntoResponse {
     match DnsFilterService::delete_category(&state.db, &name).await {
-        Ok(_) => (StatusCode::OK, Json(json!({ "status": "ok" }))),
+        Ok(_) => {
+            apply_sni_policy(&state).await;
+            (StatusCode::OK, Json(json!({ "status": "ok" })))
+        }
         Err(e) => (StatusCode::BAD_REQUEST, Json(json!({ "error": e }))),
     }
 }
@@ -85,7 +101,10 @@ pub async fn import_domains(
     Json(request): Json<DnsFilterImportRequest>,
 ) -> impl IntoResponse {
     match DnsFilterService::import_domains(&state.db, &name, request).await {
-        Ok(result) => (StatusCode::OK, Json(json!(result))),
+        Ok(result) => {
+            apply_sni_policy(&state).await;
+            (StatusCode::OK, Json(json!(result)))
+        }
         Err(e) => (StatusCode::BAD_REQUEST, Json(json!({ "error": e }))),
     }
 }
@@ -107,7 +126,10 @@ pub async fn add_rule(
     Json(rule): Json<DnsFilterRule>,
 ) -> impl IntoResponse {
     match DnsFilterService::add_rule(&state.db, rule).await {
-        Ok(_) => (StatusCode::OK, Json(json!({ "status": "ok" }))),
+        Ok(_) => {
+            apply_sni_policy(&state).await;
+            (StatusCode::OK, Json(json!({ "status": "ok" })))
+        }
         Err(e) => (StatusCode::BAD_REQUEST, Json(json!({ "error": e }))),
     }
 }
@@ -118,7 +140,10 @@ pub async fn update_rule(
     Json(rule): Json<DnsFilterRule>,
 ) -> impl IntoResponse {
     match DnsFilterService::update_rule(&state.db, id, rule).await {
-        Ok(_) => (StatusCode::OK, Json(json!({ "status": "ok" }))),
+        Ok(_) => {
+            apply_sni_policy(&state).await;
+            (StatusCode::OK, Json(json!({ "status": "ok" })))
+        }
         Err(e) => (StatusCode::BAD_REQUEST, Json(json!({ "error": e }))),
     }
 }
@@ -128,7 +153,10 @@ pub async fn delete_rule(
     State(state): State<AppState>,
 ) -> impl IntoResponse {
     match DnsFilterService::delete_rule(&state.db, id).await {
-        Ok(_) => (StatusCode::OK, Json(json!({ "status": "ok" }))),
+        Ok(_) => {
+            apply_sni_policy(&state).await;
+            (StatusCode::OK, Json(json!({ "status": "ok" })))
+        }
         Err(e) => (StatusCode::BAD_REQUEST, Json(json!({ "error": e }))),
     }
 }
