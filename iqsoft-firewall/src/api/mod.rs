@@ -14,3 +14,4 @@ pub mod route;
 pub mod wireguard;
 pub mod dnsfilter;
 pub mod sni;
+pub mod appcontrol;

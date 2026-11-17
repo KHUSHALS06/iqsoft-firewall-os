@@ -13,3 +13,4 @@ pub mod geoip_service;
 pub mod route_service;
 pub mod dnsfilter_service;
 pub mod sni_service;
+pub mod appcontrol_service;

@@ -23,6 +23,7 @@ use std::net::SocketAddr;
 
 use api::{
     address as address_api,
+    appcontrol as appcontrol_api,
     audit as audit_api,
     auth as auth_api,
     dhcp as dhcp_api,
@@ -128,6 +129,14 @@ fn build_router(state: AppState) -> Router {
             "/api/sni/rules/{id}",
             put(sni_api::update_rule)
                 .delete(sni_api::delete_rule),
+        )
+        .route(
+            "/api/sni/apps",
+            get(appcontrol_api::list_apps),
+        )
+        .route(
+            "/api/sni/apps/{id}",
+            put(appcontrol_api::set_app),
         )
         .route(
             "/api/rules",
@@ -674,5 +683,88 @@ mod tests {
         assert_eq!(logout_events.len(), 1);
         assert_eq!(logout_events[0].username.as_deref(), Some("admin"));
         assert_eq!(logout_events[0].source_ip.as_deref(), Some("10.9.8.7"));
+    }
+
+    #[tokio::test]
+    async fn the_app_catalog_needs_a_login_and_can_be_changed() {
+        let (app, state) = test_app().await;
+        add_user(&state, "admin", "correct-horse-battery", "admin").await;
+
+        let (status, _) = send(&app, Method::GET, "/api/sni/apps", None, None).await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+
+        let (status, _) = send(
+            &app,
+            Method::PUT,
+            "/api/sni/apps/youtube",
+            None,
+            Some(json!({ "action": "block" })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+
+        let token = log_in(&app, "admin", "correct-horse-battery").await;
+
+        // The whole catalog, every app on default.
+        let (status, body) = send(&app, Method::GET, "/api/sni/apps", Some(&token), None).await;
+        assert_eq!(status, StatusCode::OK, "{}", body);
+        let apps = body.as_array().unwrap();
+        assert_eq!(apps.len(), 11);
+        assert!(apps.iter().all(|a| a["action"] == "default"));
+
+        // Block one app.
+        let (status, body) = send(
+            &app,
+            Method::PUT,
+            "/api/sni/apps/youtube",
+            Some(&token),
+            Some(json!({ "action": "block" })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{}", body);
+        assert_eq!(body["id"], "youtube");
+        assert_eq!(body["action"], "block");
+
+        let (_, body) = send(&app, Method::GET, "/api/sni/apps", Some(&token), None).await;
+        let youtube = body
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|a| a["id"] == "youtube")
+            .unwrap();
+        assert_eq!(youtube["action"], "block");
+
+        // Unknown app and bad action are refused.
+        let (status, _) = send(
+            &app,
+            Method::PUT,
+            "/api/sni/apps/myspace",
+            Some(&token),
+            Some(json!({ "action": "block" })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+
+        let (status, _) = send(
+            &app,
+            Method::PUT,
+            "/api/sni/apps/youtube",
+            Some(&token),
+            Some(json!({ "action": "deny" })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+
+        // Back to default.
+        let (status, body) = send(
+            &app,
+            Method::PUT,
+            "/api/sni/apps/youtube",
+            Some(&token),
+            Some(json!({ "action": "default" })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{}", body);
+        assert_eq!(body["action"], "default");
     }
 }

@@ -10,6 +10,7 @@ use crate::{
         sni::{SniRule, SniSettings},
     },
     repository::{dnsfilter_repository::DnsFilterRepository, sni_repository::SniRepository},
+    services::appcontrol_service::AppControlService,
     sni::parser::SniResult,
 };
 use sqlx::SqlitePool;
@@ -124,9 +125,14 @@ impl SniPolicy {
             return Ok(Self::build(&settings, &[], &[], &[]));
         }
 
-        let sni_rules = SniRepository::list_rules(pool)
+        let own_rules = SniRepository::list_rules(pool)
             .await
             .map_err(|e| e.to_string())?;
+
+        // The app catalog choices (block YouTube, allow Zoom, ...) become
+        // ordinary rules next to the hand-written ones.
+        let app_rules = AppControlService::rules(pool).await?;
+        let sni_rules = merge_app_rules(own_rules, app_rules);
 
         let (dns_domains, dns_rules) = if settings.use_dns_filter_lists {
             let domains = DnsFilterRepository::list_enabled_domains(pool)
@@ -207,6 +213,27 @@ impl SniPolicy {
             }
         }
     }
+}
+
+/// Puts the app catalog rules next to the hand-written rules. When both name
+/// the same domain, the hand-written rule is kept and the app rule is dropped,
+/// so a person can always override one domain of an app by hand.
+pub fn merge_app_rules(own_rules: Vec<SniRule>, app_rules: Vec<SniRule>) -> Vec<SniRule> {
+    let own_domains: HashSet<String> = own_rules
+        .iter()
+        .filter_map(|rule| normalize_domain(&rule.domain))
+        .collect();
+
+    let mut merged: Vec<SniRule> = app_rules
+        .into_iter()
+        .filter(|rule| match normalize_domain(&rule.domain) {
+            Some(domain) => !own_domains.contains(&domain),
+            None => false,
+        })
+        .collect();
+
+    merged.extend(own_rules);
+    merged
 }
 
 #[cfg(test)]
@@ -410,5 +437,73 @@ mod tests {
         let policy = SniPolicy::load(&pool).await.unwrap();
         assert_eq!(verdict(&policy, "tiktok.com"), Verdict::Drop);
         assert_eq!(verdict(&policy, "bad.example.com"), Verdict::Accept);
+    }
+
+    #[test]
+    fn a_hand_written_rule_beats_an_app_rule_for_the_same_domain() {
+        let own = vec![sni_rule("youtube.com", "allow")];
+        let apps = vec![
+            sni_rule("youtube.com", "block"),
+            sni_rule("googlevideo.com", "block"),
+            sni_rule("bad domain", "block"),
+        ];
+
+        let merged = merge_app_rules(own, apps);
+
+        // The app's youtube.com rule and the unusable one are gone.
+        let domains: Vec<&str> = merged.iter().map(|r| r.domain.as_str()).collect();
+        assert_eq!(domains, vec!["googlevideo.com", "youtube.com"]);
+
+        let p = SniPolicy::build(&settings(true, false, false, true), &merged, &[], &[]);
+        assert_eq!(verdict(&p, "www.youtube.com"), Verdict::Accept);
+        assert_eq!(verdict(&p, "r1.googlevideo.com"), Verdict::Drop);
+    }
+
+    #[test]
+    fn an_allowed_app_beats_a_dns_filter_list_that_blocks_it() {
+        let apps = vec![sni_rule("zoom.us", "allow")];
+        let dns_domains = vec!["zoom.us".to_string()];
+
+        let p = SniPolicy::build(&settings(true, true, false, true), &apps, &dns_domains, &[]);
+
+        assert_eq!(verdict(&p, "us02web.zoom.us"), Verdict::Accept);
+    }
+
+    #[tokio::test]
+    async fn load_applies_the_app_catalog_choices() {
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        create_sni_tables(&pool).await.unwrap();
+        create_dnsfilter_tables(&pool).await.unwrap();
+
+        AppControlService::set_app_action(&pool, "netflix", "block").await.unwrap();
+        AppControlService::set_app_action(&pool, "youtube", "block").await.unwrap();
+
+        // A hand-written exception for one YouTube name.
+        sqlx::query("INSERT INTO sni_rules (domain, action) VALUES ('youtube-nocookie.com', 'allow')")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        // Filter off: nothing is blocked, whatever the apps say.
+        let policy = SniPolicy::load(&pool).await.unwrap();
+        assert_eq!(verdict(&policy, "www.netflix.com"), Verdict::Accept);
+
+        SniRepository::set_settings(&pool, &settings(true, false, false, true)).await.unwrap();
+        let policy = SniPolicy::load(&pool).await.unwrap();
+        assert_eq!(verdict(&policy, "www.netflix.com"), Verdict::Drop);
+        assert_eq!(verdict(&policy, "occ-0-1.nflxvideo.net"), Verdict::Drop);
+        assert_eq!(verdict(&policy, "rr1.googlevideo.com"), Verdict::Drop);
+        assert_eq!(verdict(&policy, "www.youtube.com"), Verdict::Drop);
+        assert_eq!(verdict(&policy, "www.youtube-nocookie.com"), Verdict::Accept);
+        assert_eq!(verdict(&policy, "www.dropbox.com"), Verdict::Accept);
+
+        // Back to default: the app is no longer managed.
+        AppControlService::set_app_action(&pool, "netflix", "default").await.unwrap();
+        let policy = SniPolicy::load(&pool).await.unwrap();
+        assert_eq!(verdict(&policy, "www.netflix.com"), Verdict::Accept);
     }
 }
