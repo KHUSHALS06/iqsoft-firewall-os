@@ -12,3 +12,4 @@ pub mod route;
 pub mod dnsfilter;
 pub mod sni;
 pub mod appcontrol;
+pub mod threatfeed;

@@ -211,6 +211,8 @@ impl FirewallGenerator {
 
         Self::generate_nat_table(&mut output, &net_config, &port_forwards, &one_to_one, &dns_enforce);
 
+        output.push_str(&crate::threatintel::generator::generate_table(pool).await?);
+
         Ok(output)
     }
 

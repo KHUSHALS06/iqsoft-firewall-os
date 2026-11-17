@@ -5,3 +5,4 @@ pub mod init;
 pub mod wireguard_schema;
 pub mod dnsfilter_schema;
 pub mod sni_schema;
+pub mod threatfeed_schema;

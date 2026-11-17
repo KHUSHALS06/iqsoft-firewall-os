@@ -10,6 +10,7 @@ mod repository;
 mod routing;
 mod services;
 mod sni;
+mod threatintel;
 mod wireguard;
 
 use axum::{
@@ -38,6 +39,7 @@ use api::{
     port_forward as port_forward_api,
     route as route_api,
     sni as sni_api,
+    threatfeed as threatfeed_api,
     wireguard as wireguard_api,
 };
 use app_state::AppState;
@@ -137,6 +139,34 @@ fn build_router(state: AppState) -> Router {
         .route(
             "/api/sni/apps/{id}",
             put(appcontrol_api::set_app),
+        )
+        .route(
+            "/api/threatfeeds",
+            get(threatfeed_api::list_feeds)
+                .post(threatfeed_api::add_feed),
+        )
+        .route(
+            "/api/threatfeeds/presets",
+            get(threatfeed_api::list_presets),
+        )
+        .route(
+            "/api/threatfeeds/apply",
+            post(threatfeed_api::apply_now),
+        )
+        .route(
+            "/api/threatfeeds/{id}",
+            put(threatfeed_api::update_feed)
+                .delete(threatfeed_api::delete_feed),
+        )
+        .route(
+            "/api/threatfeeds/{id}/refresh",
+            post(threatfeed_api::refresh_feed),
+        )
+        .route(
+            "/api/threatfeeds/{id}/entries",
+            get(threatfeed_api::list_entries)
+                .put(threatfeed_api::import_entries)
+                .layer(DefaultBodyLimit::max(MAX_IMPORT_BYTES)),
         )
         .route(
             "/api/rules",
@@ -419,6 +449,8 @@ async fn main() {
         Ok(message) => println!("{}", message),
         Err(e) => eprintln!("ERROR: {}", e),
     }
+
+    threatintel::scheduler::spawn(db.clone(), commit_lock.clone());
 
     let state = AppState {
         db,
@@ -766,5 +798,184 @@ mod tests {
         .await;
         assert_eq!(status, StatusCode::OK, "{}", body);
         assert_eq!(body["action"], "default");
+    }
+
+    #[tokio::test]
+    async fn threat_feeds_need_a_login_and_can_be_managed_end_to_end() {
+        let (app, state) = test_app().await;
+        add_user(&state, "admin", "correct-horse-battery", "admin").await;
+
+        let (status, _) = send(&app, Method::GET, "/api/threatfeeds", None, None).await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+
+        let (status, _) = send(
+            &app,
+            Method::POST,
+            "/api/threatfeeds",
+            None,
+            Some(json!({ "name": "x", "kind": "manual" })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+
+        let token = log_in(&app, "admin", "correct-horse-battery").await;
+
+        // The preset catalog.
+        let (status, body) =
+            send(&app, Method::GET, "/api/threatfeeds/presets", Some(&token), None).await;
+        assert_eq!(status, StatusCode::OK, "{}", body);
+        assert!(body.as_array().unwrap().len() >= 5);
+        assert!(body[0]["url"].as_str().unwrap().starts_with("https://"));
+
+        // A manual feed for hand-picked IOCs.
+        let (status, body) = send(
+            &app,
+            Method::POST,
+            "/api/threatfeeds",
+            Some(&token),
+            Some(json!({ "name": "my iocs", "kind": "manual", "direction": "inbound" })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{}", body);
+        let id = body["id"].as_i64().unwrap();
+
+        // The same name again, and a download feed aimed at the appliance itself, are refused.
+        let (status, _) = send(
+            &app,
+            Method::POST,
+            "/api/threatfeeds",
+            Some(&token),
+            Some(json!({ "name": "MY IOCS", "kind": "manual" })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+
+        let (status, _) = send(
+            &app,
+            Method::POST,
+            "/api/threatfeeds",
+            Some(&token),
+            Some(json!({ "name": "evil", "url": "http://127.0.0.1:3000/api/rules" })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+
+        // IOC import.
+        let (status, body) = send(
+            &app,
+            Method::PUT,
+            &format!("/api/threatfeeds/{}/entries", id),
+            Some(&token),
+            Some(json!({ "data": "# iocs\n1.2.3.4\n5.6.7.0/24 ; note\n10.0.0.1\nrubbish\n2001:4860::1\n" })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{}", body);
+        assert_eq!(body["ipv4_imported"], 2);
+        assert_eq!(body["ipv6_imported"], 1);
+        assert_eq!(body["skipped"], 2);
+        assert_eq!(body["ipv4_total"], 2);
+
+        // An import with nothing usable is a clean error and changes nothing.
+        let (status, _) = send(
+            &app,
+            Method::PUT,
+            &format!("/api/threatfeeds/{}/entries", id),
+            Some(&token),
+            Some(json!({ "data": "nothing useful", "mode": "replace" })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+
+        // The feed list shows the counts and the status.
+        let (status, body) = send(&app, Method::GET, "/api/threatfeeds", Some(&token), None).await;
+        assert_eq!(status, StatusCode::OK, "{}", body);
+        let feeds = body.as_array().unwrap();
+        assert_eq!(feeds.len(), 1);
+        assert_eq!(feeds[0]["name"], "my iocs");
+        assert_eq!(feeds[0]["ipv4_count"], 2);
+        assert_eq!(feeds[0]["ipv6_count"], 1);
+        assert_eq!(feeds[0]["enabled"], true);
+        assert!(feeds[0]["last_updated"].as_i64().is_some());
+
+        // Looking inside a feed.
+        let (status, body) = send(
+            &app,
+            Method::GET,
+            &format!("/api/threatfeeds/{}/entries?search=5.6", id),
+            Some(&token),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{}", body);
+        assert_eq!(body["total"], 1);
+        assert_eq!(body["entries"][0], "5.6.7.0/24");
+
+        // Switch it off. Test builds never touch the kernel, so this reports "not applied", but it is saved.
+        let (status, body) = send(
+            &app,
+            Method::PUT,
+            &format!("/api/threatfeeds/{}", id),
+            Some(&token),
+            Some(json!({ "name": "my iocs", "kind": "manual", "enabled": false, "direction": "both" })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{}", body);
+        assert_eq!(body["applied"], false);
+
+        let (_, body) = send(&app, Method::GET, "/api/threatfeeds", Some(&token), None).await;
+        assert_eq!(body[0]["enabled"], false);
+        assert_eq!(body[0]["direction"], "both");
+
+        // A manual feed cannot be downloaded, and unknown ids are 404.
+        let (status, _) = send(
+            &app,
+            Method::POST,
+            &format!("/api/threatfeeds/{}/refresh", id),
+            Some(&token),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+
+        let (status, _) = send(&app, Method::POST, "/api/threatfeeds/999/refresh", Some(&token), None).await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+
+        let (status, _) = send(&app, Method::DELETE, "/api/threatfeeds/999", Some(&token), None).await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+
+        let (status, _) = send(&app, Method::GET, "/api/threatfeeds/999/entries", Some(&token), None).await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+
+        // Delete.
+        let (status, _) = send(
+            &app,
+            Method::DELETE,
+            &format!("/api/threatfeeds/{}", id),
+            Some(&token),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+
+        let (_, body) = send(&app, Method::GET, "/api/threatfeeds", Some(&token), None).await;
+        assert!(body.as_array().unwrap().is_empty());
+
+        // Every change is in the audit trail.
+        let (_, body) = send(&app, Method::GET, "/api/audit?limit=100", Some(&token), None).await;
+        let actions: Vec<&str> = body["entries"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|e| e["action"].as_str().unwrap())
+            .collect();
+        for wanted in [
+            "threatfeed.create",
+            "threatfeed.import",
+            "threatfeed.update",
+            "threatfeed.refresh",
+            "threatfeed.delete",
+        ] {
+            assert!(actions.contains(&wanted), "missing {} in {:?}", wanted, actions);
+        }
     }
 }

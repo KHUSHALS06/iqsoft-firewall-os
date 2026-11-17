@@ -13,3 +13,4 @@ pub mod route_repository;
 pub mod dnsfilter_repository;
 pub mod sni_repository;
 pub mod appcontrol_repository;
+pub mod threatfeed_repository;
