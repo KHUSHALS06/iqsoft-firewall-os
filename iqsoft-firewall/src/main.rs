@@ -16,7 +16,7 @@ mod wireguard;
 use axum::{
     extract::DefaultBodyLimit,
     middleware,
-    routing::{get, post, put},
+    routing::{delete, get, post, put},
     Router,
 };
 use axum_server::tls_rustls::RustlsConfig;
@@ -27,6 +27,7 @@ use api::{
     appcontrol as appcontrol_api,
     audit as audit_api,
     auth as auth_api,
+    av as av_api,
     dhcp as dhcp_api,
     dns as dns_api,
     dnsfilter as dnsfilter_api,
@@ -169,6 +170,29 @@ fn build_router(state: AppState) -> Router {
             get(threatfeed_api::list_entries)
                 .put(threatfeed_api::import_entries)
                 .layer(DefaultBodyLimit::max(MAX_IMPORT_BYTES)),
+        )
+        .route(
+            "/api/av/settings",
+            get(av_api::get_settings)
+                .put(av_api::set_settings),
+        )
+        .route(
+            "/api/av/exceptions",
+            get(av_api::list_exceptions)
+                .post(av_api::add_exception),
+        )
+        .route(
+            "/api/av/exceptions/{id}",
+            delete(av_api::delete_exception),
+        )
+        .route(
+            "/api/av/events",
+            get(av_api::list_events)
+                .delete(av_api::clear_events),
+        )
+        .route(
+            "/api/av/summary",
+            get(av_api::summary),
         )
         .route(
             "/api/rules",
@@ -391,11 +415,6 @@ fn build_router(state: AppState) -> Router {
         .merge(protected)
         .with_state(state)
         .fallback_service(ServeDir::new(web_dir))
-
-
-
-
-
 }
 
 #[tokio::main]
