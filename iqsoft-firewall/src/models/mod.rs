@@ -13,3 +13,4 @@ pub mod dnsfilter;
 pub mod sni;
 pub mod appcontrol;
 pub mod threatfeed;
+pub mod av;
