@@ -9,59 +9,207 @@
 <link rel="stylesheet" href="/css/dashboard.css">
 </head>
 <body class="dash-body">
+
+<!-- Icon sprite and gradients (hidden, used by the page below) -->
+<svg class="sprite" width="0" height="0" aria-hidden="true" focusable="false">
+  <defs>
+    <linearGradient id="gradBlue" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#4aa3ff"/><stop offset="1" stop-color="#0a64d8"/></linearGradient>
+    <linearGradient id="gradViolet" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#b08cff"/><stop offset="1" stop-color="#6d45f0"/></linearGradient>
+    <linearGradient id="gradGreen" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#3ddc97"/><stop offset="1" stop-color="#12a05b"/></linearGradient>
+    <linearGradient id="gradShield" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#5db2ff"/><stop offset="1" stop-color="#0a5fd6"/></linearGradient>
+    <linearGradient id="gradBase" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#d9ecff"/><stop offset="1" stop-color="#8fc4ff"/></linearGradient>
+  </defs>
+  <symbol id="i-home" viewBox="0 0 24 24"><path d="M3 11l9-8 9 8v10a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1V11z"/></symbol>
+  <symbol id="i-network" viewBox="0 0 24 24"><circle cx="12" cy="5" r="2.5"/><circle cx="5" cy="18" r="2.5"/><circle cx="19" cy="18" r="2.5"/><path d="M12 7.5v4M12 11.5l-5.5 4.5M12 11.5l5.5 4.5"/></symbol>
+  <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3l8 3v6c0 5-3.500 8-8 9-4.500-1-8-4-8-9V6l8-3z"/></symbol>
+  <symbol id="i-shield-check" viewBox="0 0 24 24"><path d="M12 3l8 3v6c0 5-3.500 8-8 9-4.500-1-8-4-8-9V6l8-3z"/><path d="M8.500 12l2.500 2.500 4.500-5"/></symbol>
+  <symbol id="i-swap" viewBox="0 0 24 24"><path d="M4 8h14l-3-3M20 16H6l3 3"/></symbol>
+  <symbol id="i-target" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.500"/><circle cx="12" cy="12" r="3.500"/><path d="M12 1.500v3M12 19.500v3M1.500 12h3M19.500 12h3"/></symbol>
+  <symbol id="i-pulse" viewBox="0 0 24 24"><path d="M3 12h4l3-8 4 16 3-8h4"/></symbol>
+  <symbol id="i-key" viewBox="0 0 24 24"><circle cx="8" cy="15" r="4"/><path d="M11 12l9-9M16 7l3 3"/></symbol>
+  <symbol id="i-bars" viewBox="0 0 24 24"><path d="M6 20V10M12 20V4M18 20v-7"/></symbol>
+  <symbol id="i-file" viewBox="0 0 24 24"><path d="M6 3h9l4 4v14H6z"/><path d="M14 3v5h5M9 13h6M9 17h6"/></symbol>
+  <symbol id="i-pie" viewBox="0 0 24 24"><path d="M12 3a9 9 0 1 0 9 9h-9V3z"/><path d="M15 3.500A9 9 0 0 1 20.500 9H15z"/></symbol>
+  <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><circle cx="12" cy="12" r="7"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.900 4.900L7 7M17 17l2.100 2.100M4.900 19.100L7 17M17 7l2.100-2.100"/></symbol>
+  <symbol id="i-chev-right" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></symbol>
+  <symbol id="i-chev-down" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></symbol>
+  <symbol id="i-bell" viewBox="0 0 24 24"><path d="M6 16v-5a6 6 0 0 1 12 0v5l2 2H4l2-2z"/><path d="M10 21h4"/></symbol>
+  <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2.500M12 19.500V22M2 12h2.500M19.500 12H22M4.900 4.900l1.800 1.800M17.300 17.300l1.800 1.800M4.900 19.100l1.800-1.800M17.300 6.700l1.800-1.800"/></symbol>
+  <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20 14.500A8 8 0 0 1 9.500 4 8 8 0 1 0 20 14.500z"/></symbol>
+  <symbol id="i-calendar" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></symbol>
+  <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 11a8 8 0 0 0-14.500-4M4 4v4h4M4 13a8 8 0 0 0 14.500 4M20 20v-4h-4"/></symbol>
+  <symbol id="i-logout" viewBox="0 0 24 24"><path d="M9 4H5a1 1 0 0 0-1 1v14a1 1 0 0 0 1 1h4M16 8l4 4-4 4M20 12H9"/></symbol>
+  <symbol id="i-ban" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M5.600 5.600l12.800 12.800"/></symbol>
+  <symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 3l10 18H2L12 3z"/><path d="M12 10v5M12 18h.01"/></symbol>
+  <symbol id="i-monitor" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 21h8M12 16v5"/></symbol>
+  <symbol id="i-cpu" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2"/><rect x="9.500" y="9.500" width="5" height="5"/><path d="M9 2v4M15 2v4M9 18v4M15 18v4M2 9h4M2 15h4M18 9h4M18 15h4"/></symbol>
+  <symbol id="i-ram" viewBox="0 0 24 24"><rect x="3" y="7" width="18" height="10" rx="1.500"/><path d="M7 11v2M11 11v2M15 11v2M7 17v3M12 17v3M17 17v3"/></symbol>
+  <symbol id="i-disk" viewBox="0 0 24 24"><ellipse cx="12" cy="6" rx="8" ry="3"/><path d="M4 6v6c0 1.700 3.600 3 8 3s8-1.300 8-3V6M4 12v6c0 1.700 3.600 3 8 3s8-1.300 8-3v-6"/></symbol>
+  <symbol id="i-crosshair" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="2"/><path d="M12 1.500v4M12 18.500v4M1.500 12h4M18.500 12h4"/></symbol>
+  <symbol id="i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3.500 3.500 3.500 14.500 0 18M12 3c-3.500 3.500-3.500 14.500 0 18"/></symbol>
+  <symbol id="i-list" viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></symbol>
+  <symbol id="i-arrow-right" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></symbol>
+  <symbol id="i-arrow-up" viewBox="0 0 24 24"><path d="M12 19V5M6 11l6-6 6 6"/></symbol>
+  <symbol id="i-arrow-down" viewBox="0 0 24 24"><path d="M12 5v14M6 13l6 6 6-6"/></symbol>
+</svg>
+
 <div class="app">
+
+  <!-- ============ SIDEBAR ============ -->
   <aside class="sidebar">
     <div class="logo">
-      <svg viewBox="0 0 64 72" aria-hidden="true"><path d="M32 4 7 14v18c0 17 10.500 29.500 25 36 14.500-6.500 25-19 25-36V14L32 4Z" fill="#e8f2fe" stroke="#0a7cf5" stroke-width="5" stroke-linejoin="round"/><path d="m22 35 8 8 14-16" fill="none" stroke="#0a7cf5" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/></svg>
-      <div><div class="logo-name">IQSOFT</div><div class="logo-sub">Firewall OS</div></div>
+      <svg class="logo-shield" viewBox="0 0 64 72" aria-hidden="true"><path d="M32 4 7 14v18c0 17 10.500 29.500 25 36 14.500-6.500 25-19 25-36V14L32 4Z" fill="#e8f2fe" stroke="#0a7cf5" stroke-width="5" stroke-linejoin="round"/><path d="m22 35 8 8 14-16" fill="none" stroke="#0a7cf5" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <div class="logo-text">
+        <img class="logo-img" src="/img/iqsoft-logo.png" alt="IQSOFT">
+        <div class="logo-sub">Firewall OS</div>
+      </div>
     </div>
+
     <nav class="nav">
-      <a class="nav-item active" href="/html/dashboard.html"><i>&#8962;</i>Dashboard</a>
-      <a class="nav-item" href="#"><i>&#9678;</i>Network</a>
-      <a class="nav-item" href="#"><i>&#9960;</i>Firewall Rules</a>
-      <a class="nav-item" href="#"><i>&#8644;</i>NAT / Port Forwarding</a>
-      <a class="nav-item" href="#"><i>&#9673;</i>Threat Intelligence</a>
-      <a class="nav-item" href="#"><i>&#8767;</i>Intrusion Detection</a>
-      <a class="nav-item" href="#"><i>&#9919;</i>VPN (WireGuard)</a>
-      <a class="nav-item" href="#"><i>&#9646;</i>Monitoring</a>
-      <a class="nav-item" href="#"><i>&#9776;</i>Logs</a>
-      <a class="nav-item" href="#"><i>&#9684;</i>Reports</a>
-      <a class="nav-item" href="#"><i>&#9881;</i>System</a>
+      <a class="nav-item active" href="/html/dashboard.html"><svg class="ic" aria-hidden="true"><use href="#i-home"/></svg><span>Dashboard</span></a>
+      <a class="nav-item" href="#"><svg class="ic" aria-hidden="true"><use href="#i-network"/></svg><span>Network</span><svg class="ic chev" aria-hidden="true"><use href="#i-chev-down"/></svg></a>
+      <a class="nav-item" href="#"><svg class="ic" aria-hidden="true"><use href="#i-shield"/></svg><span>Firewall Rules</span><svg class="ic chev" aria-hidden="true"><use href="#i-chev-right"/></svg></a>
+      <a class="nav-item" href="#"><svg class="ic" aria-hidden="true"><use href="#i-swap"/></svg><span>NAT / Port Forwarding</span><svg class="ic chev" aria-hidden="true"><use href="#i-chev-right"/></svg></a>
+      <a class="nav-item" href="#"><svg class="ic" aria-hidden="true"><use href="#i-target"/></svg><span>Threat Intelligence</span><svg class="ic chev" aria-hidden="true"><use href="#i-chev-right"/></svg></a>
+      <a class="nav-item" href="#"><svg class="ic" aria-hidden="true"><use href="#i-pulse"/></svg><span>Intrusion Detection</span><svg class="ic chev" aria-hidden="true"><use href="#i-chev-right"/></svg></a>
+      <a class="nav-item" href="#"><svg class="ic" aria-hidden="true"><use href="#i-key"/></svg><span>VPN (WireGuard)</span><svg class="ic chev" aria-hidden="true"><use href="#i-chev-right"/></svg></a>
+      <a class="nav-item" href="#"><svg class="ic" aria-hidden="true"><use href="#i-bars"/></svg><span>Monitoring</span><svg class="ic chev" aria-hidden="true"><use href="#i-chev-right"/></svg></a>
+      <a class="nav-item" href="#"><svg class="ic" aria-hidden="true"><use href="#i-file"/></svg><span>Logs</span></a>
+      <a class="nav-item" href="#"><svg class="ic" aria-hidden="true"><use href="#i-pie"/></svg><span>Reports</span></a>
+      <a class="nav-item" href="#"><svg class="ic" aria-hidden="true"><use href="#i-gear"/></svg><span>System</span><svg class="ic chev" aria-hidden="true"><use href="#i-chev-right"/></svg></a>
     </nav>
+
+    <div class="side-foot">
+      <svg class="side-art" viewBox="0 0 160 130" aria-hidden="true">
+        <ellipse cx="80" cy="104" rx="62" ry="17" fill="url(#gradBase)" opacity="0.55"/>
+        <ellipse cx="80" cy="98" rx="46" ry="12" fill="url(#gradBase)"/>
+        <ellipse cx="80" cy="93" rx="34" ry="8.500" fill="#ffffff" opacity="0.85"/>
+        <path d="M80 8 32 26v30c0 28 19 46 48 56 29-10 48-28 48-56V26L80 8Z" fill="url(#gradShield)" stroke="#ffffff" stroke-width="4" stroke-linejoin="round"/>
+        <path d="M80 18 42 32v24c0 22 14 37 38 46 24-9 38-24 38-46V32L80 18Z" fill="none" stroke="#ffffff" stroke-opacity="0.45" stroke-width="2"/>
+        <path d="m60 58 14 14 27-29" fill="none" stroke="#ffffff" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      <div class="side-name">IQSOFT Firewall OS</div>
+      <div class="side-ver" id="appVersion">v1.0.0</div>
+    </div>
   </aside>
 
+  <!-- ============ MAIN ============ -->
   <main class="main">
+
     <header class="topbar">
-      <input class="search" type="search" placeholder="Search for logs, IP, rules, users..." disabled>
-      <div class="user">
-        <div class="avatar">A</div>
-        <div class="user-text"><b>admin</b><span>Administrator</span></div>
-        <button id="logoutBtn" class="btn-secondary" type="button">Sign out</button>
+      <label class="search-wrap">
+        <svg class="ic" aria-hidden="true"><use href="#i-search"/></svg>
+        <input id="globalSearch" class="search" type="search" placeholder="Search for logs, IP, rules, users..." autocomplete="off">
+      </label>
+
+      <div class="top-actions">
+        <button id="bellBtn" class="icon-round" type="button" aria-label="Notifications">
+          <svg class="ic" aria-hidden="true"><use href="#i-bell"/></svg>
+          <span id="bellDot" class="bell-dot" hidden></span>
+        </button>
+        <button id="themeBtn" class="icon-round" type="button" aria-label="Switch light or dark theme">
+          <svg class="ic theme-sun" aria-hidden="true"><use href="#i-sun"/></svg>
+          <svg class="ic theme-moon" aria-hidden="true"><use href="#i-moon"/></svg>
+        </button>
+        <div class="user">
+          <div class="avatar">A</div>
+          <div class="user-text"><b>admin</b><span>Administrator</span></div>
+          <button id="logoutBtn" class="icon-plain" type="button" aria-label="Sign out" title="Sign out">
+            <svg class="ic" aria-hidden="true"><use href="#i-logout"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <div id="bellPanel" class="bell-panel" hidden>
+        <div class="bell-head">Notifications</div>
+        <ul id="bellList" class="bell-list"></ul>
       </div>
     </header>
 
     <div class="head">
-      <div><h1>Dashboard</h1><p>Real-time security and network overview</p></div>
-      <div class="live"><span id="liveDot" class="dot"></span><span id="liveText">Connecting…</span></div>
+      <div class="head-title">
+        <h1>Dashboard</h1>
+        <p>Real-time security and network overview</p>
+      </div>
+      <div class="head-tools">
+        <div class="live"><span id="liveDot" class="dot"></span><span id="liveText">Connecting…</span></div>
+        <label class="range">
+          <svg class="ic" aria-hidden="true"><use href="#i-calendar"/></svg>
+          <select id="rangeSelect" aria-label="Time range">
+            <option value="1h">Last Hour</option>
+            <option value="24h" selected>Last 24 Hours</option>
+            <option value="7d">Last 7 Days</option>
+          </select>
+          <svg class="ic range-chev" aria-hidden="true"><use href="#i-chev-down"/></svg>
+        </label>
+        <button id="refreshBtn" class="icon-square" type="button" aria-label="Refresh now">
+          <svg class="ic" aria-hidden="true"><use href="#i-refresh"/></svg>
+        </button>
+      </div>
     </div>
 
+    <!-- ============ STAT CARDS ============ -->
     <section class="stats">
-      <div class="card stat s-blue"><div class="s-ico">&#9678;</div><div><b id="stTotal">–</b><span>Total Connections</span></div></div>
-      <div class="card stat s-green"><div class="s-ico">&#10003;</div><div><b id="stEst">–</b><span>Established</span></div></div>
-      <div class="card stat s-red"><div class="s-ico">&#9632;</div><div><b id="stHits">–</b><span>Rule Hits (packets)</span></div></div>
-      <div class="card stat s-amber"><div class="s-ico">&#9888;</div><div><b id="stLogs">–</b><span>Logged Events</span></div></div>
+      <div class="card stat s-blue">
+        <div class="s-ico"><svg class="ic" aria-hidden="true"><use href="#i-network"/></svg></div>
+        <div class="s-body">
+          <b id="stTotal">–</b>
+          <span>Total Connections</span>
+          <em id="stTotalTrend" class="trend">–</em>
+        </div>
+        <canvas id="spTotal" class="spark"></canvas>
+      </div>
+      <div class="card stat s-green">
+        <div class="s-ico"><svg class="ic" aria-hidden="true"><use href="#i-shield-check"/></svg></div>
+        <div class="s-body">
+          <b id="stAllowed">–</b>
+          <span>Allowed</span>
+          <em id="stAllowedTrend" class="trend">–</em>
+        </div>
+        <canvas id="spAllowed" class="spark"></canvas>
+      </div>
+      <div class="card stat s-red">
+        <div class="s-ico"><svg class="ic" aria-hidden="true"><use href="#i-ban"/></svg></div>
+        <div class="s-body">
+          <b id="stBlocked">–</b>
+          <span>Blocked</span>
+          <em id="stBlockedTrend" class="trend">–</em>
+        </div>
+        <canvas id="spBlocked" class="spark"></canvas>
+      </div>
+      <div class="card stat s-amber">
+        <div class="s-ico"><svg class="ic" aria-hidden="true"><use href="#i-alert"/></svg></div>
+        <div class="s-body">
+          <b id="stThreats">–</b>
+          <span>Threats Detected</span>
+          <em id="stThreatsTrend" class="trend">–</em>
+        </div>
+        <canvas id="spThreats" class="spark"></canvas>
+      </div>
     </section>
 
+    <!-- ============ TRAFFIC + PROTOCOL ============ -->
     <section class="row r-traffic">
       <div class="card">
-        <div class="card-h"><h3>Network Traffic</h3><div class="legend"><span class="lg lg-blue"></span>Download <b id="lgRx">–</b><span class="lg lg-violet"></span>Upload <b id="lgTx">–</b></div></div>
-        <canvas id="trafficChart" class="chart"></canvas>
+        <div class="card-h">
+          <h3><svg class="ic h-ic" aria-hidden="true"><use href="#i-pulse"/></svg>Network Traffic</h3>
+          <div class="legend">
+            <span class="lg lg-blue"></span>Download <b id="lgRx">–</b>
+            <span class="lg lg-violet"></span>Upload <b id="lgTx">–</b>
+          </div>
+        </div>
+        <div class="chart-wrap">
+          <canvas id="trafficChart" class="chart"></canvas>
+          <div id="chartTip" class="chart-tip" hidden></div>
+        </div>
       </div>
+
       <div class="card">
-        <div class="card-h"><h3>Traffic by Protocol</h3></div>
+        <div class="card-h"><h3><svg class="ic h-ic" aria-hidden="true"><use href="#i-pie"/></svg>Traffic by Protocol</h3></div>
         <div class="donut-wrap">
           <div class="donut">
-            <svg viewBox="0 0 42 42"><circle cx="21" cy="21" r="15.9155" fill="none" stroke="#e6eef9" stroke-width="5"/><g id="donutArcs"></g></svg>
+            <svg viewBox="0 0 42 42"><circle class="donut-track" cx="21" cy="21" r="15.9155" fill="none" stroke-width="5"/><g id="donutArcs"></g></svg>
             <div class="donut-c"><b id="donutTotal">–</b><span>Connections</span></div>
           </div>
           <ul id="protoLegend" class="proto"></ul>
@@ -69,28 +217,83 @@
       </div>
     </section>
 
-    <section class="row r-three">
+    <!-- ============ RESOURCES / THREATS / BLOCKED IPS ============ -->
+    <section class="row r-three-a">
       <div class="card">
-        <div class="card-h"><h3>Connection Table</h3></div>
-        <div class="ring-wrap">
-          <div class="ring"><svg viewBox="0 0 42 42"><circle cx="21" cy="21" r="15.9155" fill="none" stroke="#e6eef9" stroke-width="5"/><circle id="ringArc" cx="21" cy="21" r="15.9155" fill="none" stroke="#0a7cf5" stroke-width="5" stroke-linecap="round" stroke-dasharray="0 100"/></svg><div class="donut-c"><b id="ringPct">–</b></div></div>
-          <p id="ringText">–</p>
+        <div class="card-h"><h3><svg class="ic h-ic" aria-hidden="true"><use href="#i-monitor"/></svg>System Resources</h3></div>
+        <div class="gauges">
+          <div class="gauge g-blue">
+            <div class="g-ring">
+              <svg viewBox="0 0 42 42"><circle class="g-track" cx="21" cy="21" r="15.9155" fill="none" stroke-width="3.500"/><circle id="gaugeCpuArc" class="g-arc" cx="21" cy="21" r="15.9155" fill="none" stroke-width="3.500" stroke-linecap="round" stroke-dasharray="0 100"/></svg>
+              <div class="g-ico"><svg class="ic" aria-hidden="true"><use href="#i-cpu"/></svg></div>
+            </div>
+            <div class="g-label">CPU</div>
+            <b id="gaugeCpuPct">–</b>
+          </div>
+          <div class="gauge g-violet">
+            <div class="g-ring">
+              <svg viewBox="0 0 42 42"><circle class="g-track" cx="21" cy="21" r="15.9155" fill="none" stroke-width="3.500"/><circle id="gaugeRamArc" class="g-arc" cx="21" cy="21" r="15.9155" fill="none" stroke-width="3.500" stroke-linecap="round" stroke-dasharray="0 100"/></svg>
+              <div class="g-ico"><svg class="ic" aria-hidden="true"><use href="#i-ram"/></svg></div>
+            </div>
+            <div class="g-label">RAM</div>
+            <b id="gaugeRamPct">–</b>
+          </div>
+          <div class="gauge g-green">
+            <div class="g-ring">
+              <svg viewBox="0 0 42 42"><circle class="g-track" cx="21" cy="21" r="15.9155" fill="none" stroke-width="3.500"/><circle id="gaugeDiskArc" class="g-arc" cx="21" cy="21" r="15.9155" fill="none" stroke-width="3.500" stroke-linecap="round" stroke-dasharray="0 100"/></svg>
+              <div class="g-ico"><svg class="ic" aria-hidden="true"><use href="#i-disk"/></svg></div>
+            </div>
+            <div class="g-label">Disk</div>
+            <b id="gaugeDiskPct">–</b>
+          </div>
         </div>
       </div>
+
       <div class="card">
-        <div class="card-h"><h3>Top Logged Sources</h3></div>
-        <table class="tbl"><thead><tr><th>IP Address</th><th>Hits</th><th>Last target</th></tr></thead><tbody id="topSrc"></tbody></table>
+        <div class="card-h"><h3><svg class="ic h-ic" aria-hidden="true"><use href="#i-crosshair"/></svg>Active Threats (<span id="threatRange">Last 24h</span>)</h3></div>
+        <div class="threat-body">
+          <div class="threat-num">
+            <b id="threatCount">–</b>
+            <span>Threat Events</span>
+            <em id="threatTrend" class="trend-pill">–</em>
+          </div>
+          <canvas id="threatBars" class="threat-bars"></canvas>
+        </div>
       </div>
+
       <div class="card">
-        <div class="card-h"><h3>Interfaces</h3></div>
+        <div class="card-h"><h3><svg class="ic h-ic" aria-hidden="true"><use href="#i-shield"/></svg>Top Blocked IPs</h3></div>
+        <table class="tbl">
+          <thead><tr><th>IP Address</th><th>Attempts</th><th>Threat</th></tr></thead>
+          <tbody id="topSrc"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ============ MAP / EVENTS / INTERFACES ============ -->
+    <section class="row r-three-b">
+      <div class="card">
+        <div class="card-h"><h3><svg class="ic h-ic" aria-hidden="true"><use href="#i-globe"/></svg>Geographic Threat Map</h3></div>
+        <div class="map-wrap">
+          <canvas id="mapCanvas" class="map"></canvas>
+          <p id="mapEmpty" class="map-empty" hidden>No located threats yet</p>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-h">
+          <h3><svg class="ic h-ic" aria-hidden="true"><use href="#i-list"/></svg>Recent Security Events</h3>
+          <a id="viewAllEvents" class="view-all" href="#">View All<svg class="ic" aria-hidden="true"><use href="#i-arrow-right"/></svg></a>
+        </div>
+        <ul id="events" class="events"></ul>
+      </div>
+
+      <div class="card">
+        <div class="card-h"><h3><svg class="ic h-ic" aria-hidden="true"><use href="#i-network"/></svg>Interfaces</h3></div>
         <ul id="ifList" class="ifs"></ul>
       </div>
     </section>
 
-    <section class="card">
-      <div class="card-h"><h3>Recent Security Events</h3></div>
-      <ul id="events" class="events"></ul>
-    </section>
   </main>
 </div>
 <script src="/js/core/api.js"></script>

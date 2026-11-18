@@ -375,6 +375,10 @@ fn build_router(state: AppState) -> Router {
             "/api/monitor/logs",
             get(monitor_api::get_logs),
         )
+        .route(
+            "/api/monitor/system",
+            get(monitor_api::get_system),
+        )
         .route_layer(middleware::from_fn_with_state(
             state.clone(),
             auth_api::require_auth,

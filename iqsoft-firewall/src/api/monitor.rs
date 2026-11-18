@@ -2,7 +2,7 @@ use axum::{extract::Query, http::StatusCode, response::IntoResponse, Json};
 use serde::Deserialize;
 use serde_json::json;
 
-use crate::monitor::{conntrack, counters, interfaces, logs};
+use crate::monitor::{conntrack, counters, interfaces, logs, system};
 
 #[derive(Debug, Deserialize)]
 pub struct ConnectionQuery {
@@ -94,6 +94,24 @@ pub async fn get_logs(Query(query): Query<LogQuery>) -> impl IntoResponse {
         ),
         Err(e) => {
             eprintln!("monitor: log read task failed: {}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": "Internal error" })),
+            )
+        }
+    }
+}
+
+/// GET /api/monitor/system
+pub async fn get_system() -> impl IntoResponse {
+    // Reads /proc files and runs `df`, and the first call waits a moment
+    // to measure the CPU, so keep it off the async threads.
+    let result = tokio::task::spawn_blocking(system::read_system).await;
+
+    match result {
+        Ok(stats) => (StatusCode::OK, Json(json!(stats))),
+        Err(e) => {
+            eprintln!("monitor: system read task failed: {}", e);
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(json!({ "error": "Internal error" })),
