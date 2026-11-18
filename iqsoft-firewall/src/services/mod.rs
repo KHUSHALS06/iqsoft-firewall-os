@@ -15,3 +15,4 @@ pub mod dnsfilter_service;
 pub mod sni_service;
 pub mod appcontrol_service;
 pub mod threatfeed_service;
+pub mod av_service;

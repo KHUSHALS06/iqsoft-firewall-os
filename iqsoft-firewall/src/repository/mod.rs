@@ -14,3 +14,4 @@ pub mod dnsfilter_repository;
 pub mod sni_repository;
 pub mod appcontrol_repository;
 pub mod threatfeed_repository;
+pub mod av_repository;
