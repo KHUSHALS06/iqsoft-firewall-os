@@ -63,6 +63,7 @@ fn build_router(state: AppState) -> Router {
 
     let protected = Router::new()
         .route("/api/auth/logout", post(auth_api::logout))
+        .route("/api/auth/me", get(auth_api::me))
         .route(
             "/api/auth/change-password",
             post(auth_api::change_password),
@@ -730,6 +731,23 @@ mod tests {
         assert_eq!(logout_events.len(), 1);
         assert_eq!(logout_events[0].username.as_deref(), Some("admin"));
         assert_eq!(logout_events[0].source_ip.as_deref(), Some("10.9.8.7"));
+    }
+
+    #[tokio::test]
+    async fn me_returns_the_logged_in_user() {
+        let (app, state) = test_app().await;
+        add_user(&state, "viewer", "viewer-password-1", "viewer").await;
+
+        let (status, _) = send(&app, Method::GET, "/api/auth/me", None, None).await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+
+        let token = log_in(&app, "viewer", "viewer-password-1").await;
+
+        let (status, body) = send(&app, Method::GET, "/api/auth/me", Some(&token), None).await;
+        assert_eq!(status, StatusCode::OK, "{}", body);
+        assert_eq!(body["username"], "viewer");
+        assert_eq!(body["role"], "viewer");
+        assert!(body.get("password_hash").is_none());
     }
 
     #[tokio::test]

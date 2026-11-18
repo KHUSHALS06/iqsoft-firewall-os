@@ -826,6 +826,7 @@
       drawSparks();
     } finally {
       busySlow = false;
+      document.body.classList.remove('loading');
     }
   }
 
@@ -893,9 +894,60 @@
     });
   }
 
+  /* ---------------- logged-in user ---------------- */
+
+  async function loadUser() {
+    try {
+      const me = await api('/api/auth/me');
+      if (!me || !me.username) return;
+      const role = String(me.role || '');
+      document.querySelector('.user-text b').textContent = me.username;
+      document.querySelector('.user-text span').textContent =
+        role.charAt(0).toUpperCase() + role.slice(1);
+      document.querySelector('.avatar').textContent = me.username.charAt(0).toUpperCase();
+    } catch (_) {}
+  }
+
+  /* ---------------- page chrome: full screen, mobile menu ---------------- */
+
+  function initChrome() {
+    const fsBtn = $('fullscreenBtn');
+    if (document.fullscreenEnabled) {
+      fsBtn.addEventListener('click', () => {
+        if (document.fullscreenElement) document.exitFullscreen();
+        else document.documentElement.requestFullscreen().catch(() => {});
+      });
+      document.addEventListener('fullscreenchange', () => {
+        const on = !!document.fullscreenElement;
+        fsBtn.setAttribute('aria-label', on ? 'Exit full screen' : 'Enter full screen');
+        fsBtn.title = on ? 'Exit full screen' : 'Full screen';
+        setTimeout(drawAll, 150);
+      });
+    } else {
+      fsBtn.hidden = true;
+    }
+
+    const closeNav = () => document.body.classList.remove('nav-open');
+    $('menuBtn').addEventListener('click', () => document.body.classList.toggle('nav-open'));
+    $('navScrim').addEventListener('click', closeNav);
+    document.addEventListener('keydown', (ev) => { if (ev.key === 'Escape') closeNav(); });
+
+    // Pages that do not exist yet say so instead of jumping to the top of the page.
+    document.querySelectorAll('.nav-item').forEach((a) => {
+      if (a.getAttribute('href') === '#') {
+        a.title = 'Coming soon';
+        a.addEventListener('click', (ev) => ev.preventDefault());
+      } else {
+        a.addEventListener('click', closeNav);
+      }
+    });
+  }
+
   initTheme();
   initControls();
+  initChrome();
   initBell();
+  loadUser();
   initChartHover();
   drawAll();
   loop();

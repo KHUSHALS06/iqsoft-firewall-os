@@ -387,3 +387,15 @@ mod tests {
         assert!(!rows[0].success);
     }
 }
+
+/// GET /api/auth/me
+/// Who is logged in. Only the name and role are returned, never the password hash.
+pub async fn me(Extension(user): Extension<User>) -> impl IntoResponse {
+    (
+        StatusCode::OK,
+        Json(json!({
+            "username": user.username,
+            "role": user.role
+        })),
+    )
+}
