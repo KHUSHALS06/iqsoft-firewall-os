@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'self'">
+<title>Dashboard | IQSOFT Firewall OS</title>
+<link rel="stylesheet" href="/css/base.css">
+<link rel="stylesheet" href="/css/dashboard.css">
+</head>
+<body class="dash-body">
+<div class="app">
+  <aside class="sidebar">
+    <div class="logo">
+      <svg viewBox="0 0 64 72" aria-hidden="true"><path d="M32 4 7 14v18c0 17 10.500 29.500 25 36 14.500-6.500 25-19 25-36V14L32 4Z" fill="#e8f2fe" stroke="#0a7cf5" stroke-width="5" stroke-linejoin="round"/><path d="m22 35 8 8 14-16" fill="none" stroke="#0a7cf5" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <div><div class="logo-name">IQSOFT</div><div class="logo-sub">Firewall OS</div></div>
+    </div>
+    <nav class="nav">
+      <a class="nav-item active" href="/html/dashboard.html"><i>&#8962;</i>Dashboard</a>
+      <a class="nav-item" href="#"><i>&#9678;</i>Network</a>
+      <a class="nav-item" href="#"><i>&#9960;</i>Firewall Rules</a>
+      <a class="nav-item" href="#"><i>&#8644;</i>NAT / Port Forwarding</a>
+      <a class="nav-item" href="#"><i>&#9673;</i>Threat Intelligence</a>
+      <a class="nav-item" href="#"><i>&#8767;</i>Intrusion Detection</a>
+      <a class="nav-item" href="#"><i>&#9919;</i>VPN (WireGuard)</a>
+      <a class="nav-item" href="#"><i>&#9646;</i>Monitoring</a>
+      <a class="nav-item" href="#"><i>&#9776;</i>Logs</a>
+      <a class="nav-item" href="#"><i>&#9684;</i>Reports</a>
+      <a class="nav-item" href="#"><i>&#9881;</i>System</a>
+    </nav>
+  </aside>
+
+  <main class="main">
+    <header class="topbar">
+      <input class="search" type="search" placeholder="Search for logs, IP, rules, users..." disabled>
+      <div class="user">
+        <div class="avatar">A</div>
+        <div class="user-text"><b>admin</b><span>Administrator</span></div>
+        <button id="logoutBtn" class="btn-secondary" type="button">Sign out</button>
+      </div>
+    </header>
+
+    <div class="head">
+      <div><h1>Dashboard</h1><p>Real-time security and network overview</p></div>
+      <div class="live"><span id="liveDot" class="dot"></span><span id="liveText">Connecting…</span></div>
+    </div>
+
+    <section class="stats">
+      <div class="card stat s-blue"><div class="s-ico">&#9678;</div><div><b id="stTotal">–</b><span>Total Connections</span></div></div>
+      <div class="card stat s-green"><div class="s-ico">&#10003;</div><div><b id="stEst">–</b><span>Established</span></div></div>
+      <div class="card stat s-red"><div class="s-ico">&#9632;</div><div><b id="stHits">–</b><span>Rule Hits (packets)</span></div></div>
+      <div class="card stat s-amber"><div class="s-ico">&#9888;</div><div><b id="stLogs">–</b><span>Logged Events</span></div></div>
+    </section>
+
+    <section class="row r-traffic">
+      <div class="card">
+        <div class="card-h"><h3>Network Traffic</h3><div class="legend"><span class="lg lg-blue"></span>Download <b id="lgRx">–</b><span class="lg lg-violet"></span>Upload <b id="lgTx">–</b></div></div>
+        <canvas id="trafficChart" class="chart"></canvas>
+      </div>
+      <div class="card">
+        <div class="card-h"><h3>Traffic by Protocol</h3></div>
+        <div class="donut-wrap">
+          <div class="donut">
+            <svg viewBox="0 0 42 42"><circle cx="21" cy="21" r="15.9155" fill="none" stroke="#e6eef9" stroke-width="5"/><g id="donutArcs"></g></svg>
+            <div class="donut-c"><b id="donutTotal">–</b><span>Connections</span></div>
+          </div>
+          <ul id="protoLegend" class="proto"></ul>
+        </div>
+      </div>
+    </section>
+
+    <section class="row r-three">
+      <div class="card">
+        <div class="card-h"><h3>Connection Table</h3></div>
+        <div class="ring-wrap">
+          <div class="ring"><svg viewBox="0 0 42 42"><circle cx="21" cy="21" r="15.9155" fill="none" stroke="#e6eef9" stroke-width="5"/><circle id="ringArc" cx="21" cy="21" r="15.9155" fill="none" stroke="#0a7cf5" stroke-width="5" stroke-linecap="round" stroke-dasharray="0 100"/></svg><div class="donut-c"><b id="ringPct">–</b></div></div>
+          <p id="ringText">–</p>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-h"><h3>Top Logged Sources</h3></div>
+        <table class="tbl"><thead><tr><th>IP Address</th><th>Hits</th><th>Last target</th></tr></thead><tbody id="topSrc"></tbody></table>
+      </div>
+      <div class="card">
+        <div class="card-h"><h3>Interfaces</h3></div>
+        <ul id="ifList" class="ifs"></ul>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="card-h"><h3>Recent Security Events</h3></div>
+      <ul id="events" class="events"></ul>
+    </section>
+  </main>
+</div>
+<script src="/js/core/api.js"></script>
+<script src="/js/dashboard.js"></script>
+</body>
+</html>

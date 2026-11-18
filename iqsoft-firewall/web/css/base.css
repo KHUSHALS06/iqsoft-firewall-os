@@ -1,0 +1,107 @@
+:root {
+  --blue: #0a7cf5;
+  --blue-dark: #0866cc;
+  --blue-soft: #e8f2fe;
+  --red: #e11d2e;
+  --green: #12b76a;
+  --danger: #e5384f;
+  --ink: #101c2e;
+  --muted: #5b6b82;
+  --line: #e3eaf3;
+  --bg: #f4f8fd;
+  --card: #ffffff;
+  --shadow: 0 8px 28px rgba(20, 60, 120, 0.08), 0 1px 3px rgba(20, 60, 120, 0.06);
+  --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+
+* { box-sizing: border-box; }
+
+[hidden] { display: none !important; }
+
+html, body { height: 100%; }
+
+body {
+  margin: 0;
+  font-family: var(--font);
+  color: var(--ink);
+  background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+}
+
+.glass {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  box-shadow: var(--shadow);
+}
+
+.bg-blob { display: none; }
+
+.btn-primary {
+  position: relative;
+  width: 100%;
+  height: 46px;
+  margin-top: 8px;
+  font: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  color: #fff;
+  background: var(--blue);
+  border: 0;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: background 0.15s, transform 0.1s;
+}
+.btn-primary:hover:not(:disabled) { background: var(--blue-dark); }
+.btn-primary:active:not(:disabled) { transform: translateY(1px); }
+.btn-primary:disabled { cursor: not-allowed; opacity: 0.65; }
+
+.spinner {
+  display: none;
+  position: absolute;
+  right: 16px;
+  top: 50%;
+  width: 18px;
+  height: 18px;
+  margin-top: -9px;
+  border: 2px solid rgba(255, 255, 255, 0.45);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+.btn-primary.is-busy .spinner { display: block; }
+
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.alert {
+  margin-bottom: 16px;
+  padding: 10px 14px;
+  font-size: 13.5px;
+  line-height: 1.4;
+  color: #a31b30;
+  background: #fdecee;
+  border: 1px solid #f7c6cd;
+  border-radius: 10px;
+}
+.alert.warn {
+  color: #8a5300;
+  background: #fff4e0;
+  border-color: #f6d9a3;
+}
+
+.dot { width: 8px; height: 8px; border-radius: 50%; background: #aab8cc; }
+.dot.ok { background: var(--green); box-shadow: 0 0 0 3px rgba(18, 183, 106, 0.2); }
+.dot.bad { background: var(--danger); box-shadow: 0 0 0 3px rgba(229, 56, 79, 0.2); }
+
+.btn-secondary {
+  height: 40px;
+  padding: 0 20px;
+  font: inherit;
+  font-weight: 600;
+  color: var(--blue);
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  cursor: pointer;
+}
+.btn-secondary:hover { background: var(--blue-soft); }

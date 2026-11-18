@@ -51,6 +51,7 @@ use firewall::{commit::FirewallCommit, safe_commit::SafeCommit};
 use routing::commit::RouteCommit;
 use services::{auth_service::AuthService, login_throttle::LoginThrottle};
 use wireguard::commit::WireguardCommit;
+use tower_http::services::ServeDir;
 
 /// Block lists and country lists can be several MB, more than the 2 MB default.
 const MAX_IMPORT_BYTES: usize = 32 * 1024 * 1024;
@@ -379,7 +380,17 @@ fn build_router(state: AppState) -> Router {
             auth_api::require_auth,
         ));
 
-    public.merge(protected).with_state(state)
+    let web_dir = std::env::var("IQSOFT_WEB_DIR").unwrap_or_else(|_| "web".to_string());
+
+    public
+        .merge(protected)
+        .with_state(state)
+        .fallback_service(ServeDir::new(web_dir))
+
+
+
+
+
 }
 
 #[tokio::main]
