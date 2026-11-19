@@ -6,3 +6,5 @@ pub mod filter;
 pub mod integration;
 pub mod scanner;
 pub mod stream;
+pub mod health;
+pub mod proxy;
