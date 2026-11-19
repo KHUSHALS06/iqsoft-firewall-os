@@ -418,6 +418,7 @@ pub async fn initialize_database(pool: &SqlitePool) -> Result<(), sqlx::Error> {
     super::threatfeed_schema::create_threatfeed_tables(pool).await?;
     super::av_schema::create_av_tables(pool).await?;
     super::av_schema::create_av_tables(pool).await?;
+    super::sdwan_schema::create_sdwan_tables(pool).await?;
 
     Ok(())
 }
