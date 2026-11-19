@@ -13,9 +13,11 @@ use crate::{
     services::av_service::AvService,
 };
 
-// Nothing here needs to reload a running scanner yet. The proxy is a later
-// step, and when it exists it will read these settings when it starts and when
-// the commit step runs.
+// The scanning proxy (antivirus/proxy.rs) re-reads these settings every few
+// seconds, so changes to the mode, limits, port and exceptions apply by
+// themselves. The redirect of web traffic to the proxy is part of the firewall
+// ruleset, so switching antivirus on or off takes full effect at the next
+// firewall commit.
 
 // ---------- settings ----------
 
@@ -106,6 +108,23 @@ pub async fn clear_events(State(state): State<AppState>) -> impl IntoResponse {
 pub async fn summary(State(state): State<AppState>) -> impl IntoResponse {
     match AvService::summary(&state.db).await {
         Ok(summary) => (StatusCode::OK, Json(json!(summary))),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": e })),
+        ),
+    }
+}
+
+// ---------- status ----------
+
+/// Live health: proxy listening, clamd answering, and whether clamd really
+/// detected the test file in its last self-test.
+pub async fn status(State(state): State<AppState>) -> impl IntoResponse {
+    match AvService::get_settings(&state.db).await {
+        Ok(settings) => (
+            StatusCode::OK,
+            Json(json!(crate::antivirus::health::snapshot(settings.enabled))),
+        ),
         Err(e) => (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(json!({ "error": e })),

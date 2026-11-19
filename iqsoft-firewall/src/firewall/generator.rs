@@ -1,5 +1,6 @@
 use crate::{
     models::{
+        av::AvSettings,
         dhcp::DhcpConfig,
         dns::DnsConfig,
         dnsfilter::DnsFilterSettings,
@@ -14,6 +15,7 @@ use crate::{
     },
     repository::{
         address_repository::{AddressRepository, REF_PREFIX},
+        av_repository::AvRepository,
         dhcp_repository::DhcpRepository,
         dns_repository::DnsRepository,
         dnsfilter_repository::DnsFilterRepository,
@@ -34,6 +36,12 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::net::{Ipv4Addr, SocketAddr};
 
 pub struct FirewallGenerator;
+
+struct AvProxy {
+    lan: String,
+    port: u16,
+    gate_open: bool,
+}
 
 struct DdosLimits {
     tag: &'static str,
@@ -119,6 +127,10 @@ impl FirewallGenerator {
             .await
             .map_err(|e| e.to_string())?;
 
+        let av_settings = AvRepository::get_settings(pool)
+            .await
+            .map_err(|e| e.to_string())?;
+
         let port_forwards: Vec<PortForwardRule> = PortForwardRepository::list_rules(pool)
             .await
             .map_err(|e| e.to_string())?
@@ -136,6 +148,7 @@ impl FirewallGenerator {
         let addr_sets = Self::load_address_sets(pool, &rules).await?;
         let geoip = Self::load_geoip(pool).await?;
         let dns_enforce = Self::dns_enforce_interfaces(&dns_config, &dns_filter);
+        let av_proxy = Self::av_proxy(&net_config, &av_settings);
 
         let mut output = String::new();
 
@@ -163,7 +176,13 @@ impl FirewallGenerator {
 
         Self::generate_geoip_rules(&mut output, &geoip, GeoipChain::Input);
 
-        Self::generate_self_protection(&mut output, &net_config, &dhcp_config, &dns_config);
+        Self::generate_self_protection(
+            &mut output,
+            &net_config,
+            &dhcp_config,
+            &dns_config,
+            av_proxy.as_ref().map(|p| p.port),
+        );
 
         output.push_str(&Self::wireguard_input_block(&wireguard_config));
 
@@ -209,7 +228,14 @@ impl FirewallGenerator {
 
         output.push_str("}\n\n");
 
-        Self::generate_nat_table(&mut output, &net_config, &port_forwards, &one_to_one, &dns_enforce);
+        Self::generate_nat_table(
+            &mut output,
+            &net_config,
+            &port_forwards,
+            &one_to_one,
+            &dns_enforce,
+            av_proxy.as_ref(),
+        );
 
         output.push_str(&crate::threatintel::generator::generate_table(pool).await?);
 
@@ -590,6 +616,26 @@ impl FirewallGenerator {
         }
     }
 
+    /// Where the antivirus proxy listens, when antivirus is switched on.
+    fn av_proxy(net_config: &NetworkConfig, av: &AvSettings) -> Option<AvProxy> {
+        let lan = net_config.lan_interface.trim();
+
+        if !av.enabled || !Self::is_safe_iface(lan) {
+            return None;
+        }
+
+        let port = u16::try_from(av.proxy_port).ok()?;
+
+        Some(AvProxy {
+            lan: lan.to_string(),
+            port,
+            // Start open if the proxy is already listening. With fail-closed the
+            // gate stays open even without the proxy, so web traffic is refused
+            // rather than passing unscanned.
+            gate_open: crate::antivirus::health::proxy_up() || av.fail_mode != "open",
+        })
+    }
+
     fn dns_enforce_interfaces(dns_config: &DnsConfig, filter: &DnsFilterSettings) -> Vec<String> {
         if !dns_config.enabled || !filter.enabled || !filter.enforce_dns {
             return Vec::new();
@@ -631,6 +677,7 @@ impl FirewallGenerator {
         net_config: &NetworkConfig,
         dhcp_config: &DhcpConfig,
         dns_config: &DnsConfig,
+        av_proxy_port: Option<u16>,
     ) {
         output.push_str("        meta l4proto icmpv6 icmpv6 type { destination-unreachable, packet-too-big, time-exceeded, parameter-problem } accept\n");
         output.push_str("        meta l4proto icmpv6 icmpv6 type { nd-neighbor-solicit, nd-neighbor-advert, nd-router-advert } ip6 hoplimit 255 accept\n");
@@ -650,6 +697,13 @@ impl FirewallGenerator {
             if let Some(port) = Self::management_port() {
                 output.push_str(&format!(
                     "        iifname \"{}\" tcp dport {} accept # management API\n",
+                    lan, port
+                ));
+            }
+
+            if let Some(port) = av_proxy_port {
+                output.push_str(&format!(
+                    "        iifname \"{}\" tcp dport {} accept # antivirus proxy\n",
                     lan, port
                 ));
             }
@@ -791,6 +845,7 @@ impl FirewallGenerator {
         port_forwards: &[PortForwardRule],
         one_to_one: &[OneToOneNatRule],
         dns_enforce: &[String],
+        av_proxy: Option<&AvProxy>,
     ) {
         let has_forwards = !port_forwards.is_empty();
         let usable_o2o: Vec<&OneToOneNatRule> = one_to_one
@@ -798,7 +853,12 @@ impl FirewallGenerator {
             .filter(|r| Self::o2o_is_usable(r))
             .collect();
 
-        if !net_config.nat_enabled && !has_forwards && usable_o2o.is_empty() && dns_enforce.is_empty() {
+        if !net_config.nat_enabled
+            && !has_forwards
+            && usable_o2o.is_empty()
+            && dns_enforce.is_empty()
+            && av_proxy.is_none()
+        {
             return;
         }
 
@@ -809,6 +869,19 @@ impl FirewallGenerator {
         }
 
         output.push_str("table ip nat {\n\n");
+
+        // The gate: the redirect below only matches while `tcp` is in this
+        // set. The antivirus supervisor adds or removes the element at run
+        // time, so web traffic is not sent to a dead proxy and no re-commit
+        // (which would rotate the rollback history) is needed.
+        if let Some(av) = av_proxy {
+            output.push_str("    set av_gate {\n");
+            output.push_str("        type inet_proto;\n");
+            if av.gate_open {
+                output.push_str("        elements = { tcp }\n");
+            }
+            output.push_str("    }\n\n");
+        }
 
         output.push_str("    chain prerouting {\n");
         output.push_str("        type nat hook prerouting priority -100;\n");
@@ -822,6 +895,14 @@ impl FirewallGenerator {
             output.push_str(&format!(
                 "        iifname \"{}\" fib daddr type != local tcp dport 53 redirect to :53 # DNS enforcement\n",
                 iface
+            ));
+        }
+
+        // Antivirus: send LAN web traffic to the local scanning proxy.
+        if let Some(av) = av_proxy {
+            output.push_str(&format!(
+                "        iifname \"{}\" tcp dport 80 fib daddr type != local meta l4proto @av_gate redirect to :{} # antivirus scanning\n",
+                av.lan, av.port
             ));
         }
 
@@ -2407,5 +2488,67 @@ table ip nat {
         assert_eq!(a_in, b_in);
         assert_eq!(a_out, b_out);
         assert_eq!(a[a.find("table ip nat").unwrap()..], b[b.find("table ip nat").unwrap()..]);
+    }
+
+    async fn enable_av(pool: &SqlitePool, fail_mode: &str) {
+        let settings: AvSettings = serde_json::from_str(&format!(
+            r#"{{"enabled":true,"fail_mode":"{}"}}"#,
+            fail_mode
+        ))
+        .unwrap();
+
+        AvRepository::set_settings(pool, &settings).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn av_rules_appear_only_when_antivirus_is_enabled() {
+        let off = baseline_pool().await;
+        let text = generate_text(&off).await;
+        assert!(!text.contains("av_gate"));
+        assert!(!text.contains("antivirus"));
+
+        let on = baseline_pool().await;
+        enable_av(&on, "closed").await;
+        let text = generate_text(&on).await;
+        nft_check(&text);
+
+        let (input, _, _) = chains(&text);
+        assert!(input.contains("iifname \"eth1\" tcp dport 3128 accept # antivirus proxy"));
+
+        let nat = &text[text.find("table ip nat").unwrap()..];
+        assert!(nat.contains("set av_gate"));
+        assert!(nat.contains(
+            "iifname \"eth1\" tcp dport 80 fib daddr type != local meta l4proto @av_gate redirect to :3128 # antivirus scanning"
+        ));
+    }
+
+    #[tokio::test]
+    async fn av_gate_starts_open_with_fail_closed_and_closed_with_fail_open_when_the_proxy_is_down() {
+        // In tests the proxy is never listening.
+        let closed = baseline_pool().await;
+        enable_av(&closed, "closed").await;
+        assert!(generate_text(&closed).await.contains("elements = { tcp }"));
+
+        let open = baseline_pool().await;
+        enable_av(&open, "open").await;
+        let text = generate_text(&open).await;
+        assert!(text.contains("set av_gate"));
+        assert!(!text.contains("elements = { tcp }"));
+        nft_check(&text);
+    }
+
+    #[tokio::test]
+    async fn av_does_not_change_the_forward_or_output_chains() {
+        let plain = baseline_pool().await;
+        let with_av = baseline_pool().await;
+        enable_av(&with_av, "closed").await;
+
+        let a = generate_text(&plain).await;
+        let b = generate_text(&with_av).await;
+        let (_, a_fwd, a_out) = chains(&a);
+        let (_, b_fwd, b_out) = chains(&b);
+
+        assert_eq!(a_fwd, b_fwd);
+        assert_eq!(a_out, b_out);
     }
 }
