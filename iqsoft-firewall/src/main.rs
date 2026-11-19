@@ -196,6 +196,10 @@ fn build_router(state: AppState) -> Router {
             get(av_api::summary),
         )
         .route(
+            "/api/av/status",
+            get(av_api::status),
+        )
+        .route(
             "/api/rules",
             get(firewall_api::list_rules)
                 .post(firewall_api::add_rule),
@@ -437,6 +441,10 @@ async fn main() {
         .expect("Failed to initialize admin user");
 
     sni::queue::init(&db).await;
+
+    // Start the antivirus proxy before the firewall rules load, so the redirect
+    // never points at a port nobody is listening on.
+    antivirus::proxy::spawn(db.clone());
 
     let commit_lock = std::sync::Arc::new(tokio::sync::Mutex::new(()));
 
