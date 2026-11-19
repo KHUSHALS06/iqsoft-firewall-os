@@ -8,3 +8,4 @@ pub mod dnsfilter_schema;
 pub mod sni_schema;
 pub mod threatfeed_schema;
 pub mod sdwan_schema;
+pub mod ids_schema;

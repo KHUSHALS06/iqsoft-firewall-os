@@ -14,6 +14,7 @@ mod threatintel;
 mod wireguard;
 mod antivirus;
 mod sdwan;
+mod ids;
 
 use axum::{
     extract::DefaultBodyLimit,

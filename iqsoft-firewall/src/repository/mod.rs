@@ -16,3 +16,4 @@ pub mod appcontrol_repository;
 pub mod threatfeed_repository;
 pub mod av_repository;
 pub mod sdwan_repository;
+pub mod ids_repository;
