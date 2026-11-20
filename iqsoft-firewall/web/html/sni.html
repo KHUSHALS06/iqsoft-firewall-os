@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'self'">
+<title>App Control | IQSOFT Firewall OS</title>
+<link rel="stylesheet" href="/css/base.css">
+<link rel="stylesheet" href="/css/dashboard.css">
+<link rel="stylesheet" href="/css/pages.css">
+</head>
+<body class="dash-body">
+
+<div id="page" hidden>
+
+  <div id="notice"></div>
+
+  <section class="stats three">
+    <div class="card stat s-blue">
+      <div class="s-ico"><svg class="ic" aria-hidden="true"><use href="#i-list"/></svg></div>
+      <div class="s-body"><b id="stApps">–</b><span>Apps in the catalog</span></div>
+    </div>
+    <div class="card stat s-red">
+      <div class="s-ico"><svg class="ic" aria-hidden="true"><use href="#i-ban"/></svg></div>
+      <div class="s-body"><b id="stBlocked">–</b><span>Apps blocked</span></div>
+    </div>
+    <div class="card stat s-amber">
+      <div class="s-ico"><svg class="ic" aria-hidden="true"><use href="#i-shield"/></svg></div>
+      <div class="s-body"><b id="stRules">–</b><span>Site rules</span></div>
+    </div>
+  </section>
+
+  <div class="tabs" id="tabBar" role="tablist">
+    <button class="tab" type="button" data-tab="apps" role="tab">Apps</button>
+    <button class="tab" type="button" data-tab="rules" role="tab">Site rules <span id="tabCountRules" class="count">0</span></button>
+    <button class="tab" type="button" data-tab="settings" role="tab">Settings</button>
+  </div>
+
+  <!-- ============ APPS ============ -->
+  <section class="tab-panel" data-panel="apps">
+    <div class="card">
+      <div class="card-h"><h3><svg class="ic h-ic" aria-hidden="true"><use href="#i-ban"/></svg>Application control</h3></div>
+      <p class="card-sub">Block an app by the site names it uses. <b>Allow</b> lets an app through even if a DNS filter list blocks it. <b>Not managed</b> removes your choice. Turn on site-name filtering in the Settings tab for this to work.</p>
+    </div>
+    <div id="appGroups"></div>
+  </section>
+
+  <!-- ============ SITE RULES ============ -->
+  <section class="tab-panel" data-panel="rules" hidden>
+    <div class="card">
+      <div class="card-h"><h3><svg class="ic h-ic" aria-hidden="true"><use href="#i-shield"/></svg>Site rules</h3></div>
+      <p class="card-sub">A rule for a domain also covers all its subdomains.</p>
+      <form id="ruleForm" novalidate>
+        <div class="form-grid cols-3">
+          <label class="fld"><span>Domain</span>
+            <input id="rDomain" class="in mono" type="text" maxlength="253" placeholder="example.com" autocomplete="off" spellcheck="false">
+          </label>
+          <label class="fld"><span>Action</span>
+            <span class="select-wrap"><select id="rAction" class="in">
+              <option value="block">Block</option>
+              <option value="allow">Allow</option>
+            </select></span>
+          </label>
+          <label class="fld"><span>Note (optional)</span>
+            <input id="rComment" class="in" type="text" maxlength="200" autocomplete="off">
+          </label>
+        </div>
+        <div id="ruleError" class="form-error" role="alert" hidden></div>
+        <div class="card-foot"><span></span>
+          <div class="btn-row"><button id="btnAddRule" class="btn primary" type="submit"><svg class="ic" aria-hidden="true"><use href="#i-plus"/></svg>Add rule</button></div>
+        </div>
+      </form>
+    </div>
+    <div class="card">
+      <div class="tbl-wrap">
+        <table class="dtable">
+          <thead><tr><th>Domain</th><th>Action</th><th>Note</th><th></th></tr></thead>
+          <tbody id="ruleBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ SETTINGS ============ -->
+  <section class="tab-panel" data-panel="settings" hidden>
+    <form id="settingsForm" class="card" novalidate>
+      <div class="card-h"><h3><svg class="ic h-ic" aria-hidden="true"><use href="#i-gear"/></svg>Site-name filtering</h3></div>
+      <p class="card-sub">Reads the site name at the start of each HTTPS connection and blocks it by the rules and app choices. Changes take effect when you press <b>Save</b>.</p>
+
+      <div class="switch-row">
+        <label class="switch"><input id="sEnabled" type="checkbox"><span class="slider"></span></label>
+        <div class="switch-text"><b>Turn on site-name filtering</b><span>Needed for App Control and site rules to block anything.</span></div>
+      </div>
+      <div class="switch-row">
+        <label class="switch"><input id="sDns" type="checkbox"><span class="slider"></span></label>
+        <div class="switch-text"><b>Also block what the DNS filter blocks</b><span>Uses the enabled DNS filter categories and rules.</span></div>
+      </div>
+      <div class="switch-row">
+        <label class="switch"><input id="sMalformed" type="checkbox"><span class="slider"></span></label>
+        <div class="switch-text"><b>Block broken or disguised handshakes</b><span>Stops connections that hide the site name.</span></div>
+      </div>
+      <div class="switch-row">
+        <label class="switch"><input id="sQuic" type="checkbox"><span class="slider"></span></label>
+        <div class="switch-text"><b>Block QUIC (UDP 443)</b><span>Makes browsers fall back to HTTPS the firewall can read.</span></div>
+      </div>
+
+      <hr class="divider">
+
+      <div class="form-grid">
+        <label class="fld">
+          <span>Connections with no site name</span>
+          <span class="select-wrap"><select id="sNoName" class="in">
+            <option value="allow">Allow</option>
+            <option value="block">Block</option>
+          </select></span>
+        </label>
+      </div>
+
+      <div id="settingsError" class="form-error" role="alert" hidden></div>
+      <div class="card-foot"><span id="settingsState" class="muted"></span>
+        <div class="btn-row"><button id="btnSave" class="btn primary" type="submit">Save</button></div>
+      </div>
+    </form>
+  </section>
+
+</div>
+
+<script src="/js/core/api.js"></script>
+<script src="/js/core/shell.js"></script>
+<script src="/js/sni.js"></script>
+</body>
+</html>

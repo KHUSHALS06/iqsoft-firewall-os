@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'self'">
+<title>DNS Filter | IQSOFT Firewall OS</title>
+<link rel="stylesheet" href="/css/base.css">
+<link rel="stylesheet" href="/css/dashboard.css">
+<link rel="stylesheet" href="/css/pages.css">
+</head>
+<body class="dash-body">
+
+<div id="page" hidden>
+
+  <div id="notice"></div>
+
+  <section class="stats three">
+    <div class="card stat s-blue">
+      <div class="s-ico"><svg class="ic" aria-hidden="true"><use href="#i-list"/></svg></div>
+      <div class="s-body"><b id="stCats">–</b><span>Categories</span></div>
+    </div>
+    <div class="card stat s-red">
+      <div class="s-ico"><svg class="ic" aria-hidden="true"><use href="#i-ban"/></svg></div>
+      <div class="s-body"><b id="stDomains">–</b><span>Domains in active lists</span></div>
+    </div>
+    <div class="card stat s-amber">
+      <div class="s-ico"><svg class="ic" aria-hidden="true"><use href="#i-shield"/></svg></div>
+      <div class="s-body"><b id="stRules">–</b><span>Custom rules</span></div>
+    </div>
+  </section>
+
+  <div class="tabs" id="tabBar" role="tablist">
+    <button class="tab" type="button" data-tab="settings" role="tab">Settings</button>
+    <button class="tab" type="button" data-tab="categories" role="tab">Categories <span id="tabCountCats" class="count">0</span></button>
+    <button class="tab" type="button" data-tab="rules" role="tab">Custom rules <span id="tabCountRules" class="count">0</span></button>
+  </div>
+
+  <!-- ============ SETTINGS ============ -->
+  <section class="tab-panel" data-panel="settings">
+    <form id="settingsForm" class="card" novalidate>
+      <div class="card-h"><h3><svg class="ic h-ic" aria-hidden="true"><use href="#i-gear"/></svg>DNS filter settings</h3></div>
+      <p class="card-sub">Blocks lookups for domains in the enabled categories and custom block rules. Changes take effect as soon as you press <b>Save</b>.</p>
+
+      <div class="switch-row">
+        <label class="switch"><input id="sEnabled" type="checkbox"><span class="slider"></span></label>
+        <div class="switch-text"><b>Turn on DNS filtering</b><span>Checks every DNS lookup against the lists below.</span></div>
+      </div>
+
+      <hr class="divider">
+
+      <div class="form-grid">
+        <label class="fld">
+          <span>Answer for blocked domains</span>
+          <span class="select-wrap">
+            <select id="sBlock" class="in">
+              <option value="nxdomain">No such domain (NXDOMAIN)</option>
+              <option value="sinkhole">Sinkhole (0.0.0.0 / ::)</option>
+            </select>
+          </span>
+          <small>NXDOMAIN makes the lookup fail. Sinkhole returns an address that goes nowhere.</small>
+        </label>
+      </div>
+
+      <div class="switch-row">
+        <label class="switch"><input id="sSafe" type="checkbox"><span class="slider"></span></label>
+        <div class="switch-text"><b>Force safe search</b><span>Turns on safe search for the major search engines.</span></div>
+      </div>
+
+      <div class="switch-row">
+        <label class="switch"><input id="sEnforce" type="checkbox"><span class="slider"></span></label>
+        <div class="switch-text"><b>Force clients to use this firewall for DNS</b><span>Redirects DNS sent to other servers, so the filter cannot be bypassed.</span></div>
+      </div>
+
+      <div id="settingsError" class="form-error" role="alert" hidden></div>
+
+      <div class="card-foot">
+        <span id="settingsState" class="muted"></span>
+        <div class="btn-row"><button id="btnSave" class="btn primary" type="submit">Save</button></div>
+      </div>
+    </form>
+  </section>
+
+  <!-- ============ CATEGORIES ============ -->
+  <section class="tab-panel" data-panel="categories" hidden>
+    <div class="card">
+      <div class="card-h"><h3><svg class="ic h-ic" aria-hidden="true"><use href="#i-plus"/></svg>Add a category</h3></div>
+      <form id="catForm" novalidate>
+        <div class="form-grid cols-3">
+          <label class="fld"><span>Name</span>
+            <input id="cName" class="in" type="text" maxlength="40" placeholder="ads" autocomplete="off" spellcheck="false">
+          </label>
+          <label class="fld"><span>Note (optional)</span>
+            <input id="cComment" class="in" type="text" maxlength="200" placeholder="What this list is for" autocomplete="off">
+          </label>
+        </div>
+        <div id="catError" class="form-error" role="alert" hidden></div>
+        <div class="card-foot"><span class="muted">Add the category first, then import its domain list.</span>
+          <div class="btn-row"><button id="btnAddCat" class="btn primary" type="submit"><svg class="ic" aria-hidden="true"><use href="#i-plus"/></svg>Add category</button></div>
+        </div>
+      </form>
+    </div>
+
+    <div class="card">
+      <div class="tbl-wrap">
+        <table class="dtable">
+          <thead><tr><th>Name</th><th>Active</th><th>Domains</th><th>Source</th><th>Updated</th><th></th></tr></thead>
+          <tbody id="catBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-h"><h3><svg class="ic h-ic" aria-hidden="true"><use href="#i-upload"/></svg>Import a domain list</h3></div>
+      <p class="card-sub">Replaces the whole list of the chosen category. Accepts one domain per line or a hosts-file list. If the list is refused, the old list stays.</p>
+      <form id="impForm" novalidate>
+        <div class="form-grid cols-3">
+          <label class="fld"><span>Category</span>
+            <span class="select-wrap"><select id="iCat" class="in"></select></span>
+          </label>
+          <label class="fld"><span>Source (optional)</span>
+            <input id="iSource" class="in" type="text" maxlength="200" placeholder="https://example.org/list.txt" autocomplete="off">
+          </label>
+          <label class="fld"><span>Load from a file</span>
+            <input id="iFile" class="in" type="file" accept=".txt,.list,.hosts,text/plain">
+          </label>
+        </div>
+        <label class="fld"><span>Domains</span>
+          <textarea id="iData" class="in mono" rows="8" spellcheck="false" placeholder="ads.example.com&#10;tracker.example.net"></textarea>
+        </label>
+        <div id="impError" class="form-error" role="alert" hidden></div>
+        <div class="card-foot"><span id="impState" class="muted"></span>
+          <div class="btn-row"><button id="btnImport" class="btn primary" type="submit"><svg class="ic" aria-hidden="true"><use href="#i-upload"/></svg>Import list</button></div>
+        </div>
+      </form>
+    </div>
+  </section>
+
+  <!-- ============ CUSTOM RULES ============ -->
+  <section class="tab-panel" data-panel="rules" hidden>
+    <div class="card">
+      <div class="card-h"><h3><svg class="ic h-ic" aria-hidden="true"><use href="#i-shield"/></svg>Custom rules</h3></div>
+      <p class="card-sub">A rule covers the domain and all its subdomains. Use <b>Allow</b> to let through a site that a category blocks.</p>
+      <form id="ruleForm" novalidate>
+        <div class="form-grid cols-3">
+          <label class="fld"><span>Domain</span>
+            <input id="rDomain" class="in mono" type="text" maxlength="253" placeholder="example.com" autocomplete="off" spellcheck="false">
+          </label>
+          <label class="fld"><span>Action</span>
+            <span class="select-wrap"><select id="rAction" class="in">
+              <option value="block">Block</option>
+              <option value="allow">Allow</option>
+            </select></span>
+          </label>
+          <label class="fld"><span>Note (optional)</span>
+            <input id="rComment" class="in" type="text" maxlength="200" autocomplete="off">
+          </label>
+        </div>
+        <div id="ruleError" class="form-error" role="alert" hidden></div>
+        <div class="card-foot"><span></span>
+          <div class="btn-row"><button id="btnAddRule" class="btn primary" type="submit"><svg class="ic" aria-hidden="true"><use href="#i-plus"/></svg>Add rule</button></div>
+        </div>
+      </form>
+    </div>
+    <div class="card">
+      <div class="tbl-wrap">
+        <table class="dtable">
+          <thead><tr><th>Domain</th><th>Action</th><th>Note</th><th></th></tr></thead>
+          <tbody id="ruleBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+</div>
+
+<script src="/js/core/api.js"></script>
+<script src="/js/core/shell.js"></script>
+<script src="/js/dnsfilter.js"></script>
+</body>
+</html>

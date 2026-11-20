@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'self'">
+<title>GeoIP Blocking | IQSOFT Firewall OS</title>
+<link rel="stylesheet" href="/css/base.css">
+<link rel="stylesheet" href="/css/dashboard.css">
+<link rel="stylesheet" href="/css/pages.css">
+</head>
+<body class="dash-body">
+
+<div id="page" hidden>
+
+  <div id="notice"></div>
+
+  <section class="stats three">
+    <div class="card stat s-blue">
+      <div class="s-ico"><svg class="ic" aria-hidden="true"><use href="#i-globe"/></svg></div>
+      <div class="s-body"><b id="stCountries">–</b><span>Countries loaded</span></div>
+    </div>
+    <div class="card stat s-red">
+      <div class="s-ico"><svg class="ic" aria-hidden="true"><use href="#i-ban"/></svg></div>
+      <div class="s-body"><b id="stPolicies">–</b><span>Active block policies</span></div>
+    </div>
+    <div class="card stat s-amber">
+      <div class="s-ico"><svg class="ic" aria-hidden="true"><use href="#i-list"/></svg></div>
+      <div class="s-body"><b id="stRanges">–</b><span>Address ranges stored</span></div>
+    </div>
+  </section>
+
+  <div class="tabs" id="tabBar" role="tablist">
+    <button class="tab" type="button" data-tab="policies" role="tab">Policies <span id="tabCountPolicies" class="count">0</span></button>
+    <button class="tab" type="button" data-tab="datasets" role="tab">Country lists <span id="tabCountSets" class="count">0</span></button>
+  </div>
+
+  <!-- ============ POLICIES ============ -->
+  <section class="tab-panel" data-panel="policies">
+    <div class="card">
+      <div class="card-h"><h3><svg class="ic h-ic" aria-hidden="true"><use href="#i-ban"/></svg>Block a country</h3></div>
+      <p class="card-sub">Policies are saved here and put into effect with the firewall rules. After changing them, open <a href="/html/firewall.html">Firewall Rules</a> and apply. A country only blocks traffic once its address list is loaded in the Country lists tab. Private and local address ranges are never blocked.</p>
+      <form id="polForm" novalidate>
+        <div class="form-grid cols-3">
+          <label class="fld"><span>Country code</span>
+            <input id="pCode" class="in mono" type="text" maxlength="2" placeholder="CN" autocomplete="off" spellcheck="false">
+            <small>Two letters, for example CN, RU or US.</small>
+          </label>
+          <label class="fld"><span>Direction</span>
+            <span class="select-wrap"><select id="pDir" class="in">
+              <option value="inbound">Inbound (from that country to you)</option>
+              <option value="outbound">Outbound (from you to that country)</option>
+              <option value="both">Both</option>
+            </select></span>
+          </label>
+          <label class="fld"><span>Note (optional)</span>
+            <input id="pComment" class="in" type="text" maxlength="200" autocomplete="off">
+          </label>
+        </div>
+        <div id="polError" class="form-error" role="alert" hidden></div>
+        <div class="card-foot"><span id="polHint" class="muted"></span>
+          <div class="btn-row"><button id="btnAddPol" class="btn primary" type="submit"><svg class="ic" aria-hidden="true"><use href="#i-plus"/></svg>Add policy</button></div>
+        </div>
+      </form>
+    </div>
+    <div class="card">
+      <div class="tbl-wrap">
+        <table class="dtable">
+          <thead><tr><th>Country</th><th>Direction</th><th>Active</th><th>Address list</th><th>Note</th><th></th></tr></thead>
+          <tbody id="polBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ COUNTRY LISTS ============ -->
+  <section class="tab-panel" data-panel="datasets" hidden>
+    <div class="card">
+      <div class="card-h"><h3><svg class="ic h-ic" aria-hidden="true"><use href="#i-upload"/></svg>Load a country address list</h3></div>
+      <p class="card-sub">Replaces the list for that country. Use one address range per line, for example <span class="mono">203.0.113.0/24</span>. IPv4 and IPv6 can be mixed. If the list is refused, the old list stays.</p>
+      <form id="setForm" novalidate>
+        <div class="form-grid cols-3">
+          <label class="fld"><span>Country code</span>
+            <input id="dCode" class="in mono" type="text" maxlength="2" placeholder="CN" autocomplete="off" spellcheck="false">
+          </label>
+          <label class="fld"><span>Source (optional)</span>
+            <input id="dSource" class="in" type="text" maxlength="200" placeholder="Where the list came from" autocomplete="off">
+          </label>
+          <label class="fld"><span>Load from a file</span>
+            <input id="dFile" class="in" type="file" accept=".txt,.zone,.list,text/plain">
+          </label>
+        </div>
+        <label class="fld"><span>Address ranges</span>
+          <textarea id="dData" class="in mono" rows="8" spellcheck="false" placeholder="203.0.113.0/24&#10;198.51.100.0/24"></textarea>
+        </label>
+        <div id="setError" class="form-error" role="alert" hidden></div>
+        <div class="card-foot"><span id="setState" class="muted"></span>
+          <div class="btn-row"><button id="btnImport" class="btn primary" type="submit"><svg class="ic" aria-hidden="true"><use href="#i-upload"/></svg>Load list</button></div>
+        </div>
+      </form>
+    </div>
+    <div class="card">
+      <div class="tbl-wrap">
+        <table class="dtable">
+          <thead><tr><th>Country</th><th>IPv4 ranges</th><th>IPv6 ranges</th><th>Source</th><th>Updated</th><th></th></tr></thead>
+          <tbody id="setBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+</div>
+
+<script src="/js/core/api.js"></script>
+<script src="/js/core/shell.js"></script>
+<script src="/js/geoip.js"></script>
+</body>
+</html>
