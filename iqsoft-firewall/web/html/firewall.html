@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'self'">
+<title>Firewall Rules | IQSOFT Firewall OS</title>
+<link rel="stylesheet" href="/css/base.css">
+<link rel="stylesheet" href="/css/dashboard.css">
+<link rel="stylesheet" href="/css/pages.css">
+</head>
+<body class="dash-body">
+
+<div id="page" hidden>
+
+  <div id="notice"></div>
+
+  <section class="stats three">
+    <div class="card stat s-blue">
+      <div class="s-ico"><svg class="ic" aria-hidden="true"><use href="#i-list"/></svg></div>
+      <div class="s-body">
+        <b id="stTotal">–</b>
+        <span>Rules</span>
+      </div>
+    </div>
+    <div class="card stat s-green">
+      <div class="s-ico"><svg class="ic" aria-hidden="true"><use href="#i-check"/></svg></div>
+      <div class="s-body">
+        <b id="stEnabled">–</b>
+        <span>Enabled</span>
+      </div>
+    </div>
+    <div class="card stat s-red">
+      <div class="s-ico"><svg class="ic" aria-hidden="true"><use href="#i-ban"/></svg></div>
+      <div class="s-body">
+        <b id="stBlocking">–</b>
+        <span>Blocking rules (enabled)</span>
+      </div>
+    </div>
+  </section>
+
+  <div class="card">
+    <div class="card-h"><h3><svg class="ic h-ic" aria-hidden="true"><use href="#i-shield"/></svg>Firewall rules</h3></div>
+    <p class="card-sub">Rules are checked from the lowest priority number to the highest. Changes are saved straight away, but they only take effect on the firewall after you press <b>Apply</b>.</p>
+
+    <div class="toolbar">
+      <div class="seg" id="chainSeg" role="group" aria-label="Filter by chain"></div>
+      <span class="select-wrap">
+        <select id="actionFilter" class="in" aria-label="Filter by action">
+          <option value="">All actions</option>
+          <option value="accept">Accept</option>
+          <option value="drop">Drop</option>
+          <option value="reject">Reject</option>
+        </select>
+      </span>
+      <input id="search" class="in" type="search" placeholder="Search rules" autocomplete="off" spellcheck="false" aria-label="Search rules">
+      <span class="grow"></span>
+      <button id="btnAdd" class="btn primary" type="button"><svg class="ic" aria-hidden="true"><use href="#i-plus"/></svg>Add rule</button>
+    </div>
+
+    <div class="tbl-wrap">
+      <table class="dtable">
+        <thead>
+          <tr>
+            <th class="num">Priority</th>
+            <th>Rule</th>
+            <th>Chain</th>
+            <th>Action</th>
+            <th>Protocol</th>
+            <th>Source</th>
+            <th>Destination</th>
+            <th>Options</th>
+            <th>On</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="ruleBody"></tbody>
+      </table>
+    </div>
+
+    <div class="pager">
+      <span id="ruleCount"></span>
+      <span>INPUT is traffic to the firewall, FORWARD is traffic through it, OUTPUT is traffic from it.</span>
+    </div>
+  </div>
+
+  <datalist id="addrList"></datalist>
+
+</div>
+
+<script src="/js/core/api.js"></script>
+<script src="/js/core/shell.js"></script>
+<script src="/js/firewall.js"></script>
+</body>
+</html>

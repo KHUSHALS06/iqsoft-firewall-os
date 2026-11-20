@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'self'">
+<title>VPN (WireGuard) | IQSOFT Firewall OS</title>
+<link rel="stylesheet" href="/css/base.css">
+<link rel="stylesheet" href="/css/dashboard.css">
+<link rel="stylesheet" href="/css/pages.css">
+</head>
+<body class="dash-body">
+
+<div id="page" hidden>
+
+  <div id="notice"></div>
+
+  <section class="stats">
+    <div class="card stat s-blue">
+      <div class="s-ico"><svg class="ic" aria-hidden="true"><use href="#i-key"/></svg></div>
+      <div class="s-body">
+        <b id="stState">–</b>
+        <span>Tunnel</span>
+      </div>
+    </div>
+    <div class="card stat s-green">
+      <div class="s-ico"><svg class="ic" aria-hidden="true"><use href="#i-check"/></svg></div>
+      <div class="s-body">
+        <b id="stConnected">–</b>
+        <span>Peers connected</span>
+      </div>
+    </div>
+    <div class="card stat s-amber">
+      <div class="s-ico"><svg class="ic" aria-hidden="true"><use href="#i-list"/></svg></div>
+      <div class="s-body">
+        <b id="stPeers">–</b>
+        <span>Peers switched on</span>
+      </div>
+    </div>
+    <div class="card stat s-red">
+      <div class="s-ico"><svg class="ic" aria-hidden="true"><use href="#i-swap"/></svg></div>
+      <div class="s-body">
+        <b id="stTraffic">–</b>
+        <span>Traffic in / out</span>
+      </div>
+    </div>
+  </section>
+
+  <div class="tabs" id="tabBar" role="tablist">
+    <button class="tab" type="button" data-tab="peers" role="tab">Peers <span id="countPeers" class="count">0</span></button>
+    <button class="tab" type="button" data-tab="settings" role="tab">Server settings</button>
+  </div>
+
+  <section class="tab-panel" data-panel="peers">
+    <div class="card">
+      <div class="card-h"><h3><svg class="ic h-ic" aria-hidden="true"><use href="#i-key"/></svg>Peers</h3></div>
+      <p class="card-sub">A peer is a device or site that connects to this firewall through the VPN. Changes are saved straight away, but they only take effect after you press <b>Apply</b>.</p>
+
+      <div class="toolbar">
+        <input id="search" class="in" type="search" placeholder="Search peers" autocomplete="off" spellcheck="false" aria-label="Search peers">
+        <span class="grow"></span>
+        <button id="btnAddPeer" class="btn primary" type="button"><svg class="ic" aria-hidden="true"><use href="#i-plus"/></svg>Add peer</button>
+      </div>
+
+      <div class="tbl-wrap">
+        <table class="dtable">
+          <thead>
+            <tr>
+              <th>Peer</th>
+              <th>Tunnel address</th>
+              <th>Public key</th>
+              <th>Connection</th>
+              <th class="num">In</th>
+              <th class="num">Out</th>
+              <th>On</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="peerBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section class="tab-panel" data-panel="settings" hidden>
+    <form id="settingsForm" class="card" novalidate>
+      <div class="card-h"><h3><svg class="ic h-ic" aria-hidden="true"><use href="#i-gear"/></svg>VPN server settings</h3></div>
+      <p class="card-sub">Saving only stores the settings. Nothing changes on the firewall until you press <b>Apply</b> at the top of the page.</p>
+
+      <div class="switch-row">
+        <label class="switch"><input id="sEnabled" type="checkbox"><span class="slider"></span></label>
+        <div class="switch-text">
+          <b>Turn on the VPN server</b>
+          <span>Starts the WireGuard tunnel so peers can connect.</span>
+        </div>
+      </div>
+
+      <hr class="divider">
+
+      <div class="form-grid cols-2">
+        <label class="fld">
+          <span>Interface name</span>
+          <input id="sIface" class="in mono" type="text" maxlength="15" placeholder="wg0" autocomplete="off" spellcheck="false">
+          <small>The network interface the tunnel uses.</small>
+        </label>
+
+        <label class="fld">
+          <span>Listen port (UDP)</span>
+          <input id="sPort" class="in" type="number" min="1" max="65535" step="1" placeholder="51820">
+          <small>Peers connect to this port. Make sure the firewall allows it on the WAN side.</small>
+        </label>
+
+        <label class="fld">
+          <span>Tunnel address</span>
+          <input id="sAddress" class="in mono" type="text" placeholder="10.8.0.1/24" autocomplete="off" spellcheck="false">
+          <small>The firewall's own address inside the VPN, with the network size.</small>
+        </label>
+
+        <label class="fld">
+          <span>Public endpoint</span>
+          <input id="sEndpoint" class="in mono" type="text" placeholder="vpn.example.com" autocomplete="off" spellcheck="false">
+          <small>The public address or host name clients connect to. Needed to create client configurations.</small>
+        </label>
+
+        <label class="fld">
+          <span>DNS for clients (optional)</span>
+          <input id="sDns" class="in mono" type="text" placeholder="10.8.0.1, 1.1.1.1" autocomplete="off" spellcheck="false">
+          <small>IP addresses of DNS servers, separated by commas.</small>
+        </label>
+
+        <label class="fld">
+          <span>MTU (optional)</span>
+          <input id="sMtu" class="in" type="number" min="1280" max="1500" step="1" placeholder="1420">
+          <small>From 1280 to 1500. Leave empty for the default.</small>
+        </label>
+
+        <label class="fld span-all">
+          <span>Networks sent through the VPN by clients</span>
+          <input id="sAllowed" class="in mono" type="text" placeholder="0.0.0.0/0, ::/0" autocomplete="off" spellcheck="false">
+          <small>Separated by commas. <b>0.0.0.0/0, ::/0</b> sends all of a client's traffic through the firewall. Use your LAN networks for split tunnelling.</small>
+        </label>
+
+        <label class="fld span-all">
+          <span>Server public key</span>
+          <input id="sPubKey" class="in mono" type="text" readonly>
+          <small>Give this key to peers that have their own configuration.</small>
+        </label>
+      </div>
+
+      <hr class="divider">
+
+      <div class="switch-row">
+        <label class="switch"><input id="sRegen" type="checkbox"><span class="slider"></span></label>
+        <div class="switch-text">
+          <b>Create a new server key pair when saving</b>
+          <span>Every existing client stops working until it gets a new configuration. Only use this if the key was exposed.</span>
+        </div>
+      </div>
+
+      <div id="settingsError" class="form-error" role="alert" hidden></div>
+
+      <div class="card-foot">
+        <span id="settingsState" class="muted"></span>
+        <div class="btn-row">
+          <button id="btnSaveSettings" class="btn primary" type="submit">Save settings</button>
+        </div>
+      </div>
+    </form>
+  </section>
+
+</div>
+
+<script src="/js/core/api.js"></script>
+<script src="/js/core/shell.js"></script>
+<script src="/js/vpn.js"></script>
+</body>
+</html>

@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'self'">
+<title>Threat Intelligence | IQSOFT Firewall OS</title>
+<link rel="stylesheet" href="/css/base.css">
+<link rel="stylesheet" href="/css/dashboard.css">
+<link rel="stylesheet" href="/css/pages.css">
+</head>
+<body class="dash-body">
+
+<div id="page" hidden>
+
+  <div id="notice"></div>
+
+  <section class="stats three">
+    <div class="card stat s-blue">
+      <div class="s-ico"><svg class="ic" aria-hidden="true"><use href="#i-list"/></svg></div>
+      <div class="s-body">
+        <b id="stFeeds">–</b>
+        <span>Blocklists switched on</span>
+      </div>
+    </div>
+    <div class="card stat s-red">
+      <div class="s-ico"><svg class="ic" aria-hidden="true"><use href="#i-ban"/></svg></div>
+      <div class="s-body">
+        <b id="stV4">–</b>
+        <span>IPv4 networks blocked</span>
+      </div>
+    </div>
+    <div class="card stat s-amber">
+      <div class="s-ico"><svg class="ic" aria-hidden="true"><use href="#i-globe"/></svg></div>
+      <div class="s-body">
+        <b id="stV6">–</b>
+        <span>IPv6 networks blocked</span>
+      </div>
+    </div>
+  </section>
+
+  <div class="card">
+    <div class="card-h"><h3><svg class="ic h-ic" aria-hidden="true"><use href="#i-target"/></svg>Blocklists</h3></div>
+    <p class="card-sub">A blocklist is a list of known-bad addresses. Traffic from or to them is dropped. <b>Download</b> lists are fetched from a web address on a schedule, <b>manual</b> lists hold addresses you paste in. Changes to blocklists take effect straight away, without pressing Apply.</p>
+
+    <div class="toolbar">
+      <input id="search" class="in" type="search" placeholder="Search blocklists" autocomplete="off" spellcheck="false" aria-label="Search blocklists">
+      <span class="grow"></span>
+      <button id="btnPresets" class="btn" type="button"><svg class="ic" aria-hidden="true"><use href="#i-list"/></svg>Add from presets</button>
+      <button id="btnApplyNow" class="btn" type="button" title="Load the stored blocklists into the firewall again"><svg class="ic" aria-hidden="true"><use href="#i-refresh"/></svg>Re-apply</button>
+      <button id="btnAdd" class="btn primary" type="button"><svg class="ic" aria-hidden="true"><use href="#i-plus"/></svg>Add blocklist</button>
+    </div>
+
+    <div class="tbl-wrap">
+      <table class="dtable">
+        <thead>
+          <tr>
+            <th>Blocklist</th>
+            <th>Type</th>
+            <th>Direction</th>
+            <th class="num">IPv4</th>
+            <th class="num">IPv6</th>
+            <th>Last update</th>
+            <th>On</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="feedBody"></tbody>
+      </table>
+    </div>
+  </div>
+
+</div>
+
+<script src="/js/core/api.js"></script>
+<script src="/js/core/shell.js"></script>
+<script src="/js/threat.js"></script>
+</body>
+</html>

@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'self'">
+<title>NAT / Port Forwarding | IQSOFT Firewall OS</title>
+<link rel="stylesheet" href="/css/base.css">
+<link rel="stylesheet" href="/css/dashboard.css">
+<link rel="stylesheet" href="/css/pages.css">
+</head>
+<body class="dash-body">
+
+<div id="page" hidden>
+
+  <div id="notice"></div>
+
+  <div class="tabs" id="tabBar" role="tablist">
+    <button class="tab" type="button" data-tab="forwards" role="tab">Port forwarding <span id="countForwards" class="count">0</span></button>
+    <button class="tab" type="button" data-tab="onetoone" role="tab">1:1 NAT <span id="countOneToOne" class="count">0</span></button>
+  </div>
+
+  <section class="tab-panel" data-panel="forwards">
+    <div class="card">
+      <div class="card-h"><h3><svg class="ic h-ic" aria-hidden="true"><use href="#i-swap"/></svg>Port forwarding</h3></div>
+      <p class="card-sub">Send traffic that arrives on the WAN side at a port, or a range of ports, to a host on your LAN. The firewall opens the forwarded ports for you. Changes are saved straight away and take effect after you press <b>Apply</b>.</p>
+
+      <div class="toolbar">
+        <input id="pfSearch" class="in" type="search" placeholder="Search port forwards" autocomplete="off" spellcheck="false" aria-label="Search port forwards">
+        <span class="grow"></span>
+        <button id="btnAddForward" class="btn primary" type="button"><svg class="ic" aria-hidden="true"><use href="#i-plus"/></svg>Add port forward</button>
+      </div>
+
+      <div class="tbl-wrap">
+        <table class="dtable">
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Protocol</th>
+              <th>External port</th>
+              <th>Forwarded to</th>
+              <th>On</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="pfBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section class="tab-panel" data-panel="onetoone" hidden>
+    <div class="card">
+      <div class="card-h"><h3><svg class="ic h-ic" aria-hidden="true"><use href="#i-swap"/></svg>1:1 NAT</h3></div>
+      <p class="card-sub">Map a public address on the WAN side to one host on your LAN, in both directions. This only translates addresses. To let traffic in, also add a FORWARD rule whose destination is the internal host. The external address must already be configured on the WAN interface.</p>
+
+      <div class="toolbar">
+        <input id="nnSearch" class="in" type="search" placeholder="Search 1:1 NAT rules" autocomplete="off" spellcheck="false" aria-label="Search 1:1 NAT rules">
+        <span class="grow"></span>
+        <button id="btnAddOneToOne" class="btn primary" type="button"><svg class="ic" aria-hidden="true"><use href="#i-plus"/></svg>Add 1:1 NAT</button>
+      </div>
+
+      <div class="tbl-wrap">
+        <table class="dtable">
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>External IP</th>
+              <th>Internal IP</th>
+              <th>On</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="nnBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+</div>
+
+<script src="/js/core/api.js"></script>
+<script src="/js/core/shell.js"></script>
+<script src="/js/nat.js"></script>
+</body>
+</html>

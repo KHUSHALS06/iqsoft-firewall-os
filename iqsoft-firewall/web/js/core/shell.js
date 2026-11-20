@@ -12,11 +12,11 @@
     { id: 'dashboard', label: 'Dashboard', icon: 'i-home', href: '/html/dashboard.html' },
     { id: 'network', label: 'Network', icon: 'i-network', chev: 'down' },
     { id: 'sdwan', label: 'SD-WAN', icon: 'i-route', href: '/html/sdwan.html' },
-    { id: 'firewall', label: 'Firewall Rules', icon: 'i-shield', chev: 'right' },
-    { id: 'nat', label: 'NAT / Port Forwarding', icon: 'i-swap', chev: 'right' },
-    { id: 'threat', label: 'Threat Intelligence', icon: 'i-target', chev: 'right' },
+    { id: 'firewall', label: 'Firewall Rules', icon: 'i-shield', href: '/html/firewall.html', chev: 'right' },  
+    { id: 'nat', label: 'NAT / Port Forwarding', icon: 'i-swap', href: '/html/nat.html', chev: 'right' },
+    { id: 'threat', label: 'Threat Intelligence', icon: 'i-target', href: '/html/threat.html', chev: 'right' },
     { id: 'ids', label: 'Intrusion Detection', icon: 'i-pulse', href: '/html/ids.html', chev: 'right' },
-    { id: 'vpn', label: 'VPN (WireGuard)', icon: 'i-key', chev: 'right' },
+    { id: 'vpn', label: 'VPN', icon: 'i-key', href: '/html/vpn.html', chev: 'right' },
     { id: 'monitoring', label: 'Monitoring', icon: 'i-bars', chev: 'right' },
     { id: 'logs', label: 'Logs', icon: 'i-file' },
     { id: 'reports', label: 'Reports', icon: 'i-pie' },
@@ -499,4 +499,4 @@
     mount, h, icon, clear, toast, openModal, confirmBox, busy, every, tabs, live,
     fmtTime, fmtClock, ago, num, ms, errorText
   };
-})();
+})()
