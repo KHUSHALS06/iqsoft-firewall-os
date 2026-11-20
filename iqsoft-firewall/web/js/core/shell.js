@@ -10,7 +10,7 @@
 
   const NAV = [
     { id: 'dashboard', label: 'Dashboard', icon: 'i-home', href: '/html/dashboard.html' },
-    { id: 'network', label: 'Network', icon: 'i-network', chev: 'down' },
+    { id: 'network', label: 'Network', icon: 'i-network', href: '/html/network.html', chev: 'down' },
     { id: 'sdwan', label: 'SD-WAN', icon: 'i-route', href: '/html/sdwan.html' },
     { id: 'firewall', label: 'Firewall Rules', icon: 'i-shield', href: '/html/firewall.html', chev: 'right' },  
     { id: 'nat', label: 'NAT / Port Forwarding', icon: 'i-swap', href: '/html/nat.html', chev: 'right' },

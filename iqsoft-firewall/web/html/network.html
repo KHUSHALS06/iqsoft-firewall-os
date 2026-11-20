@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'self'">
+<title>Network | IQSOFT Firewall OS</title>
+<link rel="stylesheet" href="/css/base.css">
+<link rel="stylesheet" href="/css/dashboard.css">
+<link rel="stylesheet" href="/css/pages.css">
+<link rel="stylesheet" href="/css/clean.css">
+</head>
+<body class="dash-body">
+
+<div id="page" hidden>
+
+  <div class="tabs" id="tabBar" role="tablist">
+    <button class="tab" type="button" data-tab="interfaces" role="tab">Interfaces</button>
+    <button class="tab" type="button" data-tab="dhcp" role="tab">DHCP Server</button>
+    <button class="tab" type="button" data-tab="dns" role="tab">DNS Server <span id="countDns" class="count">0</span></button>
+    <button class="tab" type="button" data-tab="routes" role="tab">Static Routes <span id="countRoutes" class="count">0</span></button>
+    <button class="tab" type="button" data-tab="objects" role="tab">Address Objects <span id="countObjects" class="count">0</span></button>
+    <button class="tab" type="button" data-tab="groups" role="tab">Address Groups <span id="countGroups" class="count">0</span></button>
+  </div>
+
+  <!-- INTERFACES -->
+  <section class="tab-panel" data-panel="interfaces">
+    <div class="card">
+      <div class="card-h"><h3><svg class="ic h-ic" aria-hidden="true"><use href="#i-network"/></svg>WAN / LAN assignment</h3></div>
+      <p class="card-sub">Choose which interface faces the internet and which faces your internal network. The firewall uses these when you apply firewall rules.</p>
+      <div id="ifForm"></div>
+    </div>
+    <div class="card">
+      <div class="card-h"><h3><svg class="ic h-ic" aria-hidden="true"><use href="#i-pulse"/></svg>Interfaces on this system</h3></div>
+      <div class="tbl-wrap">
+        <table class="dtable">
+          <thead><tr><th>Name</th><th>State</th><th>Received</th><th>Sent</th><th>RX errors / drops</th><th>TX errors / drops</th></tr></thead>
+          <tbody id="ifBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- DHCP -->
+  <section class="tab-panel" data-panel="dhcp" hidden>
+    <div id="dhcpApply"></div>
+    <div class="card">
+      <div class="card-h"><h3><svg class="ic h-ic" aria-hidden="true"><use href="#i-network"/></svg>DHCP server</h3></div>
+      <p class="card-sub">Hand out addresses to devices on one interface. Saving stores the settings; press <b>Apply</b> to make them live.</p>
+      <div id="dhcpForm"></div>
+    </div>
+    <div class="card">
+      <div class="card-h"><h3><svg class="ic h-ic" aria-hidden="true"><use href="#i-key"/></svg>Reservations <span id="countRsv" class="count">0</span></h3></div>
+      <p class="card-sub">Always give a device the same address, matched by its MAC address.</p>
+      <div class="toolbar"><span class="grow"></span>
+        <button id="btnAddRsv" class="btn primary" type="button"><svg class="ic" aria-hidden="true"><use href="#i-plus"/></svg>Add reservation</button>
+      </div>
+      <div class="tbl-wrap">
+        <table class="dtable">
+          <thead><tr><th>MAC address</th><th>IP address</th><th>Hostname</th><th></th></tr></thead>
+          <tbody id="rsvBody"></tbody>
+        </table>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-h"><h3><svg class="ic h-ic" aria-hidden="true"><use href="#i-pulse"/></svg>Active leases <span id="countLeases" class="count">0</span></h3></div>
+      <div class="tbl-wrap">
+        <table class="dtable">
+          <thead><tr><th>IP address</th><th>MAC address</th><th>Hostname</th><th>Expires</th></tr></thead>
+          <tbody id="leaseBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- DNS -->
+  <section class="tab-panel" data-panel="dns" hidden>
+    <div id="dnsApply"></div>
+    <div class="card">
+      <div class="card-h"><h3><svg class="ic h-ic" aria-hidden="true"><use href="#i-globe"/></svg>DNS server</h3></div>
+      <p class="card-sub">A local DNS forwarder for your network. Saving stores the settings; press <b>Apply</b> to make them live.</p>
+      <div id="dnsForm"></div>
+    </div>
+    <div class="card">
+      <div class="card-h"><h3><svg class="ic h-ic" aria-hidden="true"><use href="#i-file"/></svg>Static records</h3></div>
+      <p class="card-sub">Names that always resolve to a fixed address on your network.</p>
+      <div class="toolbar"><span class="grow"></span>
+        <button id="btnAddRec" class="btn primary" type="button"><svg class="ic" aria-hidden="true"><use href="#i-plus"/></svg>Add record</button>
+      </div>
+      <div class="tbl-wrap">
+        <table class="dtable">
+          <thead><tr><th>Hostname</th><th>IP address</th><th></th></tr></thead>
+          <tbody id="recBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- ROUTES -->
+  <section class="tab-panel" data-panel="routes" hidden>
+    <div id="routeApply"></div>
+    <div class="card">
+      <div class="card-h"><h3><svg class="ic h-ic" aria-hidden="true"><use href="#i-route"/></svg>Static routes</h3></div>
+      <p class="card-sub">Send traffic for a network through a specific gateway or interface. A route needs a gateway, an interface, or both.</p>
+      <div class="toolbar"><span class="grow"></span>
+        <button id="btnAddRoute" class="btn primary" type="button"><svg class="ic" aria-hidden="true"><use href="#i-plus"/></svg>Add route</button>
+      </div>
+      <div class="tbl-wrap">
+        <table class="dtable">
+          <thead><tr><th>Name</th><th>Destination</th><th>Gateway</th><th>Interface</th><th>Metric</th><th>On</th><th></th></tr></thead>
+          <tbody id="routeBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- ADDRESS OBJECTS -->
+  <section class="tab-panel" data-panel="objects" hidden>
+    <div class="card">
+      <div class="card-h"><h3><svg class="ic h-ic" aria-hidden="true"><use href="#i-target"/></svg>Address objects</h3></div>
+      <p class="card-sub">Named hosts, subnets or ranges you can reuse in firewall rules.</p>
+      <div class="toolbar"><span class="grow"></span>
+        <button id="btnAddObj" class="btn primary" type="button"><svg class="ic" aria-hidden="true"><use href="#i-plus"/></svg>Add address object</button>
+      </div>
+      <div class="tbl-wrap">
+        <table class="dtable">
+          <thead><tr><th>Name</th><th>Type</th><th>Value</th><th>IP version</th><th></th></tr></thead>
+          <tbody id="objBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- ADDRESS GROUPS -->
+  <section class="tab-panel" data-panel="groups" hidden>
+    <div class="card">
+      <div class="card-h"><h3><svg class="ic h-ic" aria-hidden="true"><use href="#i-target"/></svg>Address groups</h3></div>
+      <p class="card-sub">A group collects address objects of the same IP version under one name.</p>
+      <div class="toolbar"><span class="grow"></span>
+        <button id="btnAddGrp" class="btn primary" type="button"><svg class="ic" aria-hidden="true"><use href="#i-plus"/></svg>Add address group</button>
+      </div>
+      <div class="tbl-wrap">
+        <table class="dtable">
+          <thead><tr><th>Name</th><th>Members</th><th>IP version</th><th></th></tr></thead>
+          <tbody id="grpBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+</div>
+
+<script src="/js/core/api.js"></script>
+<script src="/js/core/shell.js"></script>
+<script src="/js/network.js"></script>
+</body>
+</html>
