@@ -10,7 +10,7 @@
   const frame = Shell.mount({
     active: 'ids',
     title: 'Intrusion Detection',
-    subtitle: 'Detect and block attacks with Suricata',
+    subtitle: 'Detect and block network attacks',
     content: $('page')
   });
   if (!frame) return;

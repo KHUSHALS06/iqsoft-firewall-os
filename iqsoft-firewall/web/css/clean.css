@@ -1,0 +1,43 @@
+/* =====================================================================
+   Production finish: tighter layout, no divider lines, no explanatory
+   helper text. Loaded last, after dashboard.css and pages.css.
+   To change the spacing between blocks, edit --gap only.
+   ===================================================================== */
+:root { --gap: 10px; }
+
+/* ---------- Spacing between blocks ---------- */
+.row, .stats { gap: var(--gap); margin-bottom: var(--gap); }
+.stack { gap: var(--gap); }
+.tabs { margin-bottom: var(--gap); }
+.notice { margin-bottom: var(--gap); }
+.head { margin-bottom: var(--gap); }
+.topbar { margin-bottom: var(--gap); }
+.app { gap: var(--gap); }
+.toolbar { margin-bottom: 10px; }
+.pager { margin-top: 10px; }
+
+/* ---------- No divider lines ---------- */
+.divider { display: none; }
+.card-foot { margin-top: 12px; padding-top: 0; border-top: 0; }
+.dtable td, .tbl td, .events li, .ifs li, .bell-list li { border-top: 0; }
+.bell-head { border-bottom: 0; }
+.dtable tbody tr:nth-child(even) td { background: rgba(120, 150, 200, 0.07); }
+.dtable tbody tr:hover td { background: var(--hover); }
+
+/* ---------- No explanatory helper text ---------- */
+.card-sub,
+.fld > small,
+.switch-row .switch-text > span,
+.card-foot > .muted:not(#settingsState),
+#exHelp { display: none; }
+.modal .card-sub { display: block; margin: 0 0 14px; }
+.card-foot:not(:has(.btn, .btn-row, #settingsState)) { display: none; }
+.form-grid { gap: 12px 16px; }
+
+/* ---------- Advanced settings (collapsed by default) ---------- */
+.adv { margin: 14px 0; }
+.adv > summary { display: inline-flex; align-items: center; gap: 8px; padding: 6px 2px; font-size: 14px; font-weight: 600; color: var(--muted); cursor: pointer; list-style: none; }
+.adv > summary::-webkit-details-marker { display: none; }
+.adv > summary::before { content: ""; width: 7px; height: 7px; border-right: 2px solid currentColor; border-bottom: 2px solid currentColor; transform: rotate(-45deg); transition: transform 0.15s; }
+.adv[open] > summary::before { transform: rotate(45deg); }
+.adv > .form-grid { margin-top: 10px; }

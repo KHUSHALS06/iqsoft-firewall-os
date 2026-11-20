@@ -10,7 +10,7 @@
   const frame = Shell.mount({
     active: 'antivirus',
     title: 'Antivirus',
-    subtitle: 'Scan web downloads for malware with ClamAV',
+    subtitle: 'Checks downloads for viruses and malware',
     content: $('page')
   });
   if (!frame) return;
@@ -78,11 +78,11 @@
   };
 
   const FAIL_HELP = {
-    open: 'If ClamAV stops, downloads keep working but are not scanned.',
-    closed: 'If ClamAV stops, web downloads are blocked until it is back.'
+    open: 'If the virus engine stops, downloads keep working but are not scanned.',
+    closed: 'If the virus engine stops, web downloads are blocked until it is back.'
   };
 
-  const ENGINES = { clamav: 'ClamAV', hash: 'Hash list', url: 'URL check' };
+  const ENGINES = { clamav: 'Virus scan', hash: 'Known threat list', url: 'Website check' };
 
   const RESULTS = {
     blocked: ['Blocked', 'bad'],
@@ -126,16 +126,14 @@
   function renderEngine(st) {
     const on = st.enabled;
 
+    const engineOk = st.clamd_reachable && st.clamd_detects_test_file;
+
     kv($('engStatus'), [
       ['Protection', protection(st)],
       ['Mode', state.settings ? (state.settings.mode === 'monitor' ? 'Detect only' : 'Block infected files') : '–'],
-      ['Scanning proxy', st.proxy_listening ? badge('Listening on port ' + st.proxy_port, 'ok') : badge('Not listening', on ? 'bad' : '')],
-      ['ClamAV', flag(st.clamd_reachable, 'Answering', 'Not answering', on)],
-      ['Detection test', st.clamd_reachable
-        ? flag(st.clamd_detects_test_file, 'Passed', 'Failed', on)
-        : '–'],
-      ['Web redirect', flag(st.redirect_active, 'Active', 'Not active', false)],
-      ['Last self-test', st.last_check_unix ? ago(st.last_check_unix) : 'never']
+      ['Web scanner', st.proxy_listening ? badge('Running', 'ok') : badge('Stopped', on ? 'bad' : '')],
+      ['Virus engine', engineOk ? badge('Ready', 'ok') : badge(on ? 'Not ready' : 'Idle', on ? 'bad' : '')],
+      ['Web protection', flag(st.redirect_active, 'Active', 'Not active', false)]
     ]);
   }
 
@@ -250,7 +248,12 @@
     const socket = $('sSocket').value.trim();
     if (!message && (!socket.startsWith('/') || /\s/.test(socket) || socket.split('/').includes('..') || socket.length > 200)) {
       markInvalid('sSocket', true);
-      message = 'The ClamAV socket must be a full path starting with /, without spaces.';
+      message = 'The scanner connection path must be a full path starting with /, without spaces.';
+    }
+
+    if ($('sPort').classList.contains('invalid') || $('sSocket').classList.contains('invalid')) {
+      const adv = document.querySelector('.adv');
+      if (adv) adv.open = true;
     }
 
     setError('settingsError', message);
@@ -280,7 +283,7 @@
 
   function timerSelect() {
     return h('select', { class: 'in' },
-      [[60, '60 seconds (recommended)'], [30, '30 seconds'], [120, '2 minutes'], [300, '5 minutes'], [0, 'No timer – apply permanently']]
+      [[60, '60 seconds (recommended)'], [30, '30 seconds'], [120, '2 minutes'], [300, '5 minutes'], [0, 'Off – keep permanently']]
         .map(([v, t]) => h('option', { value: v, text: t })));
   }
 
@@ -288,16 +291,16 @@
     const timer = timerSelect();
 
     const body = h('div', null,
-      h('p', { class: 'card-sub', text: 'This applies the saved firewall ruleset, including the redirect of web traffic to the antivirus scanner. With a safety timer, the firewall returns to the previous rules by itself unless you confirm that you can still reach it.' }),
+      h('p', { class: 'card-sub', text: 'This puts your saved settings into effect. If you choose an automatic undo time, the previous settings return by themselves unless you confirm that everything still works.' }),
       h('label', { class: 'fld' },
-        h('span', { text: 'Safety timer' }),
+        h('span', { text: 'Automatic undo' }),
         h('span', { class: 'select-wrap' }, timer),
-        h('small', { text: 'Use a timer whenever you change the firewall over the network you are connected through.' })));
+        h('small', { text: 'Recommended when you are managing this device remotely.' })));
 
     const cancel = h('button', { class: 'btn', type: 'button' }, 'Cancel');
-    const go = h('button', { class: 'btn primary', type: 'button' }, icon('i-play'), 'Apply now');
+    const go = h('button', { class: 'btn primary', type: 'button' }, icon('i-play'), 'Activate now');
 
-    const modal = openModal({ title: 'Apply firewall configuration', body, footer: [cancel, go] });
+    const modal = openModal({ title: 'Activate changes', body, footer: [cancel, go] });
 
     cancel.addEventListener('click', modal.close);
     go.addEventListener('click', async () => {

@@ -8,6 +8,7 @@
 <link rel="stylesheet" href="/css/base.css">
 <link rel="stylesheet" href="/css/dashboard.css">
 <link rel="stylesheet" href="/css/pages.css">
+<link rel="stylesheet" href="/css/clean.css">
 </head>
 <body class="dash-body">
 
@@ -135,7 +136,11 @@
           </span>
           <small id="sFailHelp"></small>
         </label>
+      </div>
 
+      <details class="adv">
+        <summary>Advanced</summary>
+        <div class="form-grid">
         <label class="fld">
           <span>Scanner port</span>
           <input id="sPort" class="in" type="number" min="1024" max="65535" step="1">
@@ -143,13 +148,12 @@
         </label>
 
         <label class="fld">
-          <span>ClamAV socket</span>
+          <span>Scanner connection path</span>
           <input id="sSocket" class="in mono" type="text" placeholder="/run/clamav/clamd.ctl" autocomplete="off" spellcheck="false">
           <small>Full path of the clamd socket on this firewall.</small>
         </label>
-      </div>
-
-      <hr class="divider">
+        </div>
+      </details>
 
       <div class="switch-row">
         <label class="switch"><input id="sArchives" type="checkbox"><span class="slider"></span></label>

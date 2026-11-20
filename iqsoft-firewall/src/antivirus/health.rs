@@ -153,22 +153,22 @@ pub fn snapshot(enabled: bool) -> StatusSnapshot {
 
     if enabled {
         if !proxy_listening {
-            problems.push("The scanning proxy is not listening.".to_string());
+            problems.push("The web scanner is not running.".to_string());
         }
         if !clamd_reachable {
-            problems.push("ClamAV (clamd) is not answering.".to_string());
+            problems.push("The virus engine is not responding.".to_string());
         } else if !detects {
             problems.push(
-                "ClamAV answers but did not detect the test file. Its signatures may be missing."
+                "The virus engine is running but its threat database may be missing or out of date."
                     .to_string(),
             );
         }
         if last_check == 0 || now() - last_check > STALE_AFTER_SECS {
-            problems.push("The ClamAV self-test has not run recently.".to_string());
+            problems.push("The protection check has not completed recently.".to_string());
         }
         if !redirect_active {
             problems.push(
-                "Web traffic is not being redirected to the scanner. Commit the firewall configuration."
+                "Web traffic is not being checked yet. Press Apply to activate protection."
                     .to_string(),
             );
         }
