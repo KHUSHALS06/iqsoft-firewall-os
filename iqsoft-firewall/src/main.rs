@@ -37,6 +37,7 @@ use api::{
     firewall as firewall_api,
     geoip as geoip_api,
     health,
+    ids as ids_api,
     monitor as monitor_api,
     network_config as network_config_api,
     one_to_one_nat as one_to_one_nat_api,
@@ -200,6 +201,41 @@ fn build_router(state: AppState) -> Router {
         .route(
             "/api/av/status",
             get(av_api::status),
+        )
+        .route(
+            "/api/ids/settings",
+            get(ids_api::get_settings)
+                .put(ids_api::set_settings),
+        )
+        .route(
+            "/api/ids/overrides",
+            get(ids_api::list_overrides)
+                .post(ids_api::add_override),
+        )
+        .route(
+            "/api/ids/overrides/{id}",
+            delete(ids_api::delete_override),
+        )
+        .route(
+            "/api/ids/events",
+            get(ids_api::list_events)
+                .delete(ids_api::clear_events),
+        )
+        .route(
+            "/api/ids/summary",
+            get(ids_api::summary),
+        )
+        .route(
+            "/api/ids/status",
+            get(ids_api::status),
+        )
+        .route(
+            "/api/ids/apply",
+            post(ids_api::apply),
+        )
+        .route(
+            "/api/ids/rules/update",
+            post(ids_api::update_rules),
         )
         .route(
             "/api/rules",
@@ -497,6 +533,11 @@ async fn main() {
     }
 
     threatintel::scheduler::spawn(db.clone(), commit_lock.clone());
+
+    // Runs after the firewall rules are restored, because the IPS queue rules live in a table
+    // of their own that the firewall's `flush ruleset` would otherwise remove. It also starts
+    // Suricata if needed (which can take a minute), so it runs in the background.
+    ids::scheduler::spawn(db.clone(), commit_lock.clone());
 
     let state = AppState {
         db,
@@ -1040,5 +1081,123 @@ mod tests {
         ] {
             assert!(actions.contains(&wanted), "missing {} in {:?}", wanted, actions);
         }
+    }
+
+    #[tokio::test]
+    async fn ids_routes_need_a_login_and_settings_and_overrides_work_end_to_end() {
+        let (app, state) = test_app().await;
+        add_user(&state, "admin", "correct-horse-battery", "admin").await;
+
+        // Every IDS route is behind the login.
+        for (method, uri) in [
+            (Method::GET, "/api/ids/settings"),
+            (Method::PUT, "/api/ids/settings"),
+            (Method::GET, "/api/ids/overrides"),
+            (Method::POST, "/api/ids/overrides"),
+            (Method::DELETE, "/api/ids/overrides/1"),
+            (Method::GET, "/api/ids/events"),
+            (Method::DELETE, "/api/ids/events"),
+            (Method::GET, "/api/ids/summary"),
+            (Method::GET, "/api/ids/status"),
+            (Method::POST, "/api/ids/apply"),
+            (Method::POST, "/api/ids/rules/update"),
+        ] {
+            let (status, _) = send(&app, method, uri, None, Some(json!({}))).await;
+            assert_eq!(status, StatusCode::UNAUTHORIZED, "{}", uri);
+        }
+
+        let token = log_in(&app, "admin", "correct-horse-battery").await;
+
+        // Starts switched off, in passive mode.
+        let (status, body) = send(&app, Method::GET, "/api/ids/settings", Some(&token), None).await;
+        assert_eq!(status, StatusCode::OK, "{}", body);
+        assert_eq!(body["enabled"], false);
+        assert_eq!(body["mode"], "ids");
+
+        // Save new settings. Missing fields keep their defaults.
+        let (status, body) = send(
+            &app,
+            Method::PUT,
+            "/api/ids/settings",
+            Some(&token),
+            Some(json!({ "enabled": true, "mode": "ips", "interfaces": "eth0" })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{}", body);
+
+        let (_, body) = send(&app, Method::GET, "/api/ids/settings", Some(&token), None).await;
+        assert_eq!(body["enabled"], true);
+        assert_eq!(body["mode"], "ips");
+        assert_eq!(body["interfaces"], "eth0");
+        assert_eq!(body["queue_num"], 200);
+
+        // A bad value is refused and nothing changes.
+        let (status, _) = send(
+            &app,
+            Method::PUT,
+            "/api/ids/settings",
+            Some(&token),
+            Some(json!({ "enabled": true, "mode": "block" })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+
+        let (_, body) = send(&app, Method::GET, "/api/ids/settings", Some(&token), None).await;
+        assert_eq!(body["mode"], "ips");
+
+        // Rule overrides.
+        let (status, body) = send(
+            &app,
+            Method::POST,
+            "/api/ids/overrides",
+            Some(&token),
+            Some(json!({ "sid": 2100498, "action": "disable", "comment": "too noisy" })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{}", body);
+        let id = body["id"].as_i64().unwrap();
+
+        let (status, _) = send(
+            &app,
+            Method::POST,
+            "/api/ids/overrides",
+            Some(&token),
+            Some(json!({ "sid": 2100498, "action": "drop" })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+
+        let (_, body) = send(&app, Method::GET, "/api/ids/overrides", Some(&token), None).await;
+        assert_eq!(body.as_array().unwrap().len(), 1);
+        assert_eq!(body[0]["sid"], 2100498);
+        assert_eq!(body[0]["comment"], "too noisy");
+
+        let (status, _) = send(
+            &app,
+            Method::DELETE,
+            &format!("/api/ids/overrides/{}", id),
+            Some(&token),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+
+        let (_, body) = send(&app, Method::GET, "/api/ids/overrides", Some(&token), None).await;
+        assert!(body.as_array().unwrap().is_empty());
+
+        // Events, summary and status answer even though nothing has been logged or started.
+        let (status, body) = send(&app, Method::GET, "/api/ids/events", Some(&token), None).await;
+        assert_eq!(status, StatusCode::OK, "{}", body);
+        assert!(body.as_array().unwrap().is_empty());
+
+        let (status, body) = send(&app, Method::GET, "/api/ids/summary", Some(&token), None).await;
+        assert_eq!(status, StatusCode::OK, "{}", body);
+        assert_eq!(body["total_events"], 0);
+
+        let (status, body) = send(&app, Method::GET, "/api/ids/status", Some(&token), None).await;
+        assert_eq!(status, StatusCode::OK, "{}", body);
+        assert_eq!(body["enabled"], true);
+        assert!(body["suricata"].get("installed").is_some());
+        assert!(body["rules"].get("rule_count").is_some());
     }
 }

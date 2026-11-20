@@ -17,3 +17,5 @@ pub mod sni;
 pub mod appcontrol;
 pub mod threatfeed;
 pub mod av;
+pub mod ids;
+pub mod sdwan;
