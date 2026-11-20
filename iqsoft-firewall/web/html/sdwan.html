@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'self'">
+<title>SD-WAN | IQSOFT Firewall OS</title>
+<link rel="stylesheet" href="/css/base.css">
+<link rel="stylesheet" href="/css/dashboard.css">
+<link rel="stylesheet" href="/css/pages.css">
+</head>
+<body class="dash-body">
+
+<!-- The page frame (sidebar, top bar) is added by /js/core/shell.js. Everything below is moved into it. -->
+<div id="page" hidden>
+
+  <div id="notice"></div>
+
+  <!-- ============ NUMBERS ============ -->
+  <section class="stats">
+    <div class="card stat s-green">
+      <div class="s-ico"><svg class="ic" aria-hidden="true"><use href="#i-check"/></svg></div>
+      <div class="s-body">
+        <b id="stUp">–</b>
+        <span>Links up</span>
+      </div>
+    </div>
+    <div class="card stat s-red">
+      <div class="s-ico"><svg class="ic" aria-hidden="true"><use href="#i-ban"/></svg></div>
+      <div class="s-body">
+        <b id="stDown">–</b>
+        <span>Links down</span>
+      </div>
+    </div>
+    <div class="card stat s-amber">
+      <div class="s-ico"><svg class="ic" aria-hidden="true"><use href="#i-info"/></svg></div>
+      <div class="s-body">
+        <b id="stUnknown">–</b>
+        <span>Not checked yet</span>
+      </div>
+    </div>
+    <div class="card stat s-blue">
+      <div class="s-ico"><svg class="ic" aria-hidden="true"><use href="#i-route"/></svg></div>
+      <div class="s-body">
+        <b id="stRules">–</b>
+        <span>Traffic rules</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ TABS ============ -->
+  <div class="tabs" id="tabBar" role="tablist">
+    <button class="tab" type="button" data-tab="overview" role="tab">Overview</button>
+    <button class="tab" type="button" data-tab="links" role="tab">WAN links <span id="tabCountLinks" class="count">0</span></button>
+    <button class="tab" type="button" data-tab="rules" role="tab">Traffic rules <span id="tabCountRules" class="count">0</span></button>
+    <button class="tab" type="button" data-tab="preview" role="tab">Preview</button>
+  </div>
+
+  <!-- ============ OVERVIEW ============ -->
+  <section class="tab-panel" data-panel="overview">
+    <div class="card">
+      <div class="card-h"><h3><svg class="ic h-ic" aria-hidden="true"><use href="#i-route"/></svg>SD-WAN</h3></div>
+      <p class="card-sub">SD-WAN uses several internet connections at once. It checks each one every few seconds, sends traffic over the ones that work, and moves traffic away from a connection the moment it stops answering.</p>
+
+      <div class="switch-row">
+        <label class="switch"><input id="swEnabled" type="checkbox"><span class="slider"></span></label>
+        <div class="switch-text">
+          <b>Turn on SD-WAN</b>
+          <span id="swHelp">Needs at least one enabled WAN link.</span>
+        </div>
+      </div>
+
+      <div class="card-foot">
+        <span class="muted">Changes to links, rules and this switch are only saved until you press <b>Commit</b>.</span>
+        <div class="btn-row">
+          <button id="btnProbe" class="btn" type="button"><svg class="ic" aria-hidden="true"><use href="#i-pulse"/></svg>Test links now</button>
+          <button id="btnRollback" class="btn" type="button"><svg class="ic" aria-hidden="true"><use href="#i-undo"/></svg>Roll back</button>
+          <button id="btnCommit" class="btn primary" type="button"><svg class="ic" aria-hidden="true"><use href="#i-play"/></svg>Commit</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-h"><h3><svg class="ic h-ic" aria-hidden="true"><use href="#i-pulse"/></svg>Link health</h3></div>
+      <div class="tbl-wrap">
+        <table class="dtable">
+          <thead>
+            <tr>
+              <th>Link</th>
+              <th>Interface</th>
+              <th>State</th>
+              <th class="num">Delay</th>
+              <th class="num">Loss</th>
+              <th>Last check</th>
+              <th>Last change</th>
+            </tr>
+          </thead>
+          <tbody id="healthBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ WAN LINKS ============ -->
+  <section class="tab-panel" data-panel="links" hidden>
+    <div class="card">
+      <div class="toolbar">
+        <span class="muted">Your internet connections. A lower priority number is preferred; links with the same number share traffic by weight.</span>
+        <span class="grow"></span>
+        <button id="btnAddLink" class="btn primary" type="button"><svg class="ic" aria-hidden="true"><use href="#i-plus"/></svg>Add link</button>
+      </div>
+
+      <div class="tbl-wrap">
+        <table class="dtable">
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Interface</th>
+              <th>Gateway</th>
+              <th class="num">Priority</th>
+              <th class="num">Weight</th>
+              <th>Checked by pinging</th>
+              <th>Status</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="linkBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ TRAFFIC RULES ============ -->
+  <section class="tab-panel" data-panel="rules" hidden>
+    <div class="card">
+      <div class="toolbar">
+        <span class="muted">Choose which connection certain traffic uses. Rules are checked from the lowest position number up, and traffic that matches no rule uses the preferred links.</span>
+        <span class="grow"></span>
+        <button id="btnAddRule" class="btn primary" type="button"><svg class="ic" aria-hidden="true"><use href="#i-plus"/></svg>Add rule</button>
+      </div>
+
+      <div class="tbl-wrap">
+        <table class="dtable">
+          <thead>
+            <tr>
+              <th class="num">Position</th>
+              <th>Name</th>
+              <th>Traffic</th>
+              <th>Send through</th>
+              <th>If the link is down</th>
+              <th>Status</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="ruleBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ PREVIEW ============ -->
+  <section class="tab-panel" data-panel="preview" hidden>
+    <div class="notice">
+      <svg class="ic" aria-hidden="true"><use href="#i-info"/></svg>
+      <div>This is exactly what <b>Commit</b> would put into effect, built from your saved links and rules. Nothing here is live yet.</div>
+    </div>
+
+    <div class="card">
+      <div class="card-h">
+        <h3><svg class="ic h-ic" aria-hidden="true"><use href="#i-shield"/></svg>Packet marking (nftables)</h3>
+        <button id="btnPvRefresh" class="btn sm" type="button"><svg class="ic" aria-hidden="true"><use href="#i-refresh"/></svg>Refresh</button>
+      </div>
+      <pre id="pvNft" class="code">Loading…</pre>
+    </div>
+
+    <div class="card">
+      <div class="card-h"><h3><svg class="ic h-ic" aria-hidden="true"><use href="#i-route"/></svg>Routing</h3></div>
+      <pre id="pvRouting" class="code">Loading…</pre>
+    </div>
+  </section>
+
+  <!-- ============ FORMS (opened as dialogs by sdwan.js) ============ -->
+  <template id="tplLink">
+    <form id="linkForm" novalidate>
+      <div class="form-grid cols-2">
+        <label class="fld">
+          <span>Name</span>
+          <input id="lfName" class="in" type="text" maxlength="40" placeholder="ISP1 Fibre" autocomplete="off">
+          <small>Shown in the lists and in rules.</small>
+        </label>
+
+        <label class="fld">
+          <span>Network interface</span>
+          <input id="lfInterface" class="in mono" type="text" maxlength="15" placeholder="eth0" autocomplete="off" spellcheck="false">
+          <small>The port this connection is plugged into.</small>
+        </label>
+
+        <label class="fld">
+          <span>Gateway (optional)</span>
+          <input id="lfGateway" class="in mono" type="text" placeholder="203.0.113.1" autocomplete="off" spellcheck="false">
+          <small>The provider's router address. Leave empty for connections without one.</small>
+        </label>
+
+        <label class="fld">
+          <span>Ping this address to check the link</span>
+          <input id="lfTarget" class="in mono" type="text" placeholder="1.1.1.1" autocomplete="off" spellcheck="false">
+          <small>An address on the internet that always answers.</small>
+        </label>
+
+        <label class="fld">
+          <span>Priority (1 to 100)</span>
+          <input id="lfPriority" class="in" type="number" min="1" max="100" step="1">
+          <small>Lower is preferred. Higher numbers are only used when better ones are down.</small>
+        </label>
+
+        <label class="fld">
+          <span>Weight (1 to 100)</span>
+          <input id="lfWeight" class="in" type="number" min="1" max="100" step="1">
+          <small>Share of traffic among links with the same priority.</small>
+        </label>
+
+        <label class="fld">
+          <span>Check every (seconds)</span>
+          <input id="lfInterval" class="in" type="number" min="1" max="3600" step="1">
+          <small>1 to 3600.</small>
+        </label>
+
+        <label class="fld">
+          <span>Wait for a reply (seconds)</span>
+          <input id="lfTimeout" class="in" type="number" min="1" max="30" step="1">
+          <small>1 to 30.</small>
+        </label>
+
+        <label class="fld">
+          <span>Mark down after (failed checks)</span>
+          <input id="lfFail" class="in" type="number" min="1" max="20" step="1">
+          <small>Failed checks in a row before the link counts as down.</small>
+        </label>
+
+        <label class="fld">
+          <span>Mark up after (good checks)</span>
+          <input id="lfRecover" class="in" type="number" min="1" max="20" step="1">
+          <small>Good checks in a row before a down link is used again.</small>
+        </label>
+
+        <label class="fld span-all">
+          <span>Note (optional)</span>
+          <input id="lfComment" class="in" type="text" maxlength="200" autocomplete="off">
+        </label>
+
+        <div class="fld span-all">
+          <div class="switch-row">
+            <label class="switch"><input id="lfEnabled" type="checkbox"><span class="slider"></span></label>
+            <div class="switch-text">
+              <b>Use this link</b>
+              <span>A switched-off link is kept in the list but gets no traffic.</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </form>
+  </template>
+
+  <template id="tplRule">
+    <form id="ruleForm" novalidate>
+      <div class="form-grid cols-2">
+        <label class="fld">
+          <span>Name</span>
+          <input id="rfName" class="in" type="text" maxlength="40" placeholder="Video calls" autocomplete="off">
+        </label>
+
+        <label class="fld">
+          <span>Position (1 to 9999)</span>
+          <input id="rfPosition" class="in" type="number" min="1" max="9999" step="1">
+          <small>Rules are checked from the lowest number up.</small>
+        </label>
+
+        <label class="fld">
+          <span>From network (optional)</span>
+          <input id="rfSrc" class="in mono" type="text" placeholder="192.168.10.0/24" autocomplete="off" spellcheck="false">
+          <small>Leave empty for any source.</small>
+        </label>
+
+        <label class="fld">
+          <span>To network (optional)</span>
+          <input id="rfDst" class="in mono" type="text" placeholder="8.8.8.0/24" autocomplete="off" spellcheck="false">
+          <small>Leave empty for any destination.</small>
+        </label>
+
+        <label class="fld">
+          <span>Protocol</span>
+          <span class="select-wrap">
+            <select id="rfProtocol" class="in">
+              <option value="any">Any</option>
+              <option value="tcp">TCP</option>
+              <option value="udp">UDP</option>
+              <option value="icmp">ICMP (ping)</option>
+            </select>
+          </span>
+        </label>
+
+        <div class="fld" id="rfPortsBox">
+          <span>Destination ports (optional)</span>
+          <div class="form-grid cols-2">
+            <input id="rfPortStart" class="in" type="number" min="1" max="65535" step="1" placeholder="From" aria-label="First port">
+            <input id="rfPortEnd" class="in" type="number" min="1" max="65535" step="1" placeholder="To" aria-label="Last port">
+          </div>
+          <small>Only for TCP and UDP. Use the same number twice for a single port.</small>
+        </div>
+
+        <label class="fld">
+          <span>Send traffic through</span>
+          <span class="select-wrap">
+            <select id="rfStrategy" class="in">
+              <option value="link">One chosen link</option>
+              <option value="balance">Spread over the best links</option>
+              <option value="best_quality">The fastest link right now</option>
+            </select>
+          </span>
+          <small id="rfStrategyHelp"></small>
+        </label>
+
+        <label class="fld" id="rfLinkBox">
+          <span>Link</span>
+          <span class="select-wrap">
+            <select id="rfLink" class="in"></select>
+          </span>
+        </label>
+
+        <label class="fld" id="rfDownBox">
+          <span>If that link is down</span>
+          <span class="select-wrap">
+            <select id="rfOnDown" class="in">
+              <option value="fallback">Use the other links</option>
+              <option value="block">Block this traffic</option>
+            </select>
+          </span>
+          <small>"Block" keeps this traffic off other connections, for example when only one provider may carry it.</small>
+        </label>
+
+        <label class="fld span-all">
+          <span>Note (optional)</span>
+          <input id="rfComment" class="in" type="text" maxlength="200" autocomplete="off">
+        </label>
+
+        <div class="fld span-all">
+          <div class="switch-row">
+            <label class="switch"><input id="rfEnabled" type="checkbox"><span class="slider"></span></label>
+            <div class="switch-text">
+              <b>Rule is active</b>
+              <span>A switched-off rule is kept in the list but ignored.</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </form>
+  </template>
+
+</div>
+
+<script src="/js/core/api.js"></script>
+<script src="/js/core/shell.js"></script>
+<script src="/js/sdwan.js"></script>
+</body>
+</html>

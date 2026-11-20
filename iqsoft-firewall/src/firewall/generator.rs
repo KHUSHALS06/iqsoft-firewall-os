@@ -239,6 +239,7 @@ impl FirewallGenerator {
 
         output.push_str(&crate::threatintel::generator::generate_table(pool).await?);
         output.push_str(&crate::ids::generator::generate_table(pool).await?);
+        output.push_str(&crate::sdwan::generator::generate_table(pool).await?);
 
         Ok(output)
     }

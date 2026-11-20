@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'self'">
+<title>Intrusion Detection | IQSOFT Firewall OS</title>
+<link rel="stylesheet" href="/css/base.css">
+<link rel="stylesheet" href="/css/dashboard.css">
+<link rel="stylesheet" href="/css/pages.css">
+</head>
+<body class="dash-body">
+
+<!-- The page frame (sidebar, top bar) is added by /js/core/shell.js. Everything below is moved into it. -->
+<div id="page" hidden>
+
+  <div id="notice"></div>
+
+  <!-- ============ NUMBERS ============ -->
+  <section class="stats three">
+    <div class="card stat s-blue">
+      <div class="s-ico"><svg class="ic" aria-hidden="true"><use href="#i-list"/></svg></div>
+      <div class="s-body">
+        <b id="stTotal">–</b>
+        <span>Events stored</span>
+      </div>
+    </div>
+    <div class="card stat s-red">
+      <div class="s-ico"><svg class="ic" aria-hidden="true"><use href="#i-ban"/></svg></div>
+      <div class="s-body">
+        <b id="stBlocked">–</b>
+        <span>Blocked (last 24 h)</span>
+      </div>
+    </div>
+    <div class="card stat s-amber">
+      <div class="s-ico"><svg class="ic" aria-hidden="true"><use href="#i-alert"/></svg></div>
+      <div class="s-body">
+        <b id="stAlerted">–</b>
+        <span>Alerts only (last 24 h)</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ TABS ============ -->
+  <div class="tabs" id="tabBar" role="tablist">
+    <button class="tab" type="button" data-tab="overview" role="tab">Overview</button>
+    <button class="tab" type="button" data-tab="settings" role="tab">Settings</button>
+    <button class="tab" type="button" data-tab="overrides" role="tab">Rule overrides <span id="tabCountOverrides" class="count">0</span></button>
+    <button class="tab" type="button" data-tab="events" role="tab">Events</button>
+  </div>
+
+  <!-- ============ OVERVIEW ============ -->
+  <section class="tab-panel" data-panel="overview">
+    <div class="row r-two">
+      <div class="card">
+        <div class="card-h"><h3><svg class="ic h-ic" aria-hidden="true"><use href="#i-pulse"/></svg>Engine</h3></div>
+        <dl id="engStatus" class="kv"></dl>
+      </div>
+
+      <div class="card">
+        <div class="card-h"><h3><svg class="ic h-ic" aria-hidden="true"><use href="#i-file"/></svg>Signatures</h3></div>
+        <dl id="rulesInfo" class="kv"></dl>
+        <div id="lastUpdateBox"></div>
+        <div class="card-foot">
+          <span class="muted">Signatures are the attack patterns Suricata looks for.</span>
+          <button id="btnUpdateRules" class="btn primary" type="button"><svg class="ic" aria-hidden="true"><use href="#i-refresh"/></svg>Update rules now</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-h"><h3><svg class="ic h-ic" aria-hidden="true"><use href="#i-crosshair"/></svg>Top alerts (last 24 hours)</h3></div>
+      <div class="tbl-wrap">
+        <table class="dtable">
+          <thead><tr><th>Signature ID</th><th>Signature</th><th class="num">Hits</th><th></th></tr></thead>
+          <tbody id="topSigs"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ SETTINGS ============ -->
+  <section class="tab-panel" data-panel="settings" hidden>
+    <form id="settingsForm" class="card" novalidate>
+      <div class="card-h"><h3><svg class="ic h-ic" aria-hidden="true"><use href="#i-gear"/></svg>Intrusion detection settings</h3></div>
+      <p class="card-sub">Saving only stores the settings. Nothing changes on the firewall until you press <b>Save and apply</b> (or <b>Apply</b> at the top of the page).</p>
+
+      <div class="switch-row">
+        <label class="switch"><input id="sEnabled" type="checkbox"><span class="slider"></span></label>
+        <div class="switch-text">
+          <b>Turn on intrusion detection</b>
+          <span>Starts Suricata and records attacks it recognises.</span>
+        </div>
+      </div>
+
+      <hr class="divider">
+
+      <div class="form-grid">
+        <label class="fld">
+          <span>Mode</span>
+          <span class="select-wrap">
+            <select id="sMode" class="in">
+              <option value="ids">Detect only (IDS)</option>
+              <option value="ips">Detect and block (IPS)</option>
+            </select>
+          </span>
+          <small id="sModeHelp"></small>
+        </label>
+
+        <label class="fld" data-for="ids">
+          <span>Interfaces to watch</span>
+          <input id="sInterfaces" class="in mono" type="text" placeholder="eth0,eth1" autocomplete="off" spellcheck="false">
+          <small>Network interfaces Suricata listens on, separated by commas. At least one is needed in detect-only mode.</small>
+        </label>
+
+        <label class="fld" data-for="ips">
+          <span>Queue number</span>
+          <input id="sQueue" class="in" type="number" min="1" max="65535" step="1">
+          <small>Netfilter queue used in blocking mode (1 to 65535). Leave it unless it clashes with something else.</small>
+        </label>
+
+        <label class="fld" data-for="ips">
+          <span>If Suricata stops</span>
+          <span class="select-wrap">
+            <select id="sFailMode" class="in">
+              <option value="open">Let traffic through (safe)</option>
+              <option value="closed">Block traffic (strict)</option>
+            </select>
+          </span>
+          <small>"Let traffic through" keeps the network working but uninspected. "Block traffic" stops forwarded traffic until Suricata is back.</small>
+        </label>
+
+        <label class="fld span-all">
+          <span>Home networks</span>
+          <input id="sHomeNet" class="in mono" type="text" placeholder="[192.168.0.0/16,10.0.0.0/8,172.16.0.0/12]" autocomplete="off" spellcheck="false">
+          <small>Your own networks. Suricata uses this to tell inside from outside, which makes many signatures more accurate.</small>
+        </label>
+
+        <label class="fld">
+          <span>Update signatures every (hours)</span>
+          <input id="sRuleHours" class="in" type="number" min="0" max="720" step="1">
+          <small>How often new signatures are downloaded. Use 0 to update only by hand.</small>
+        </label>
+
+        <label class="fld">
+          <span>Keep events for (days)</span>
+          <input id="sRetention" class="in" type="number" min="1" max="365" step="1">
+          <small>Older events are deleted automatically.</small>
+        </label>
+      </div>
+
+      <div id="settingsError" class="form-error" role="alert" hidden></div>
+
+      <div class="card-foot">
+        <span id="settingsState" class="muted"></span>
+        <div class="btn-row">
+          <button id="btnSaveSettings" class="btn" type="submit">Save</button>
+          <button id="btnSaveApply" class="btn primary" type="button">Save and apply</button>
+        </div>
+      </div>
+    </form>
+  </section>
+
+  <!-- ============ RULE OVERRIDES ============ -->
+  <section class="tab-panel" data-panel="overrides" hidden>
+    <div class="card">
+      <div class="card-h"><h3><svg class="ic h-ic" aria-hidden="true"><use href="#i-shield"/></svg>Rule overrides</h3></div>
+      <p class="card-sub">Change how one signature behaves. <b>Disable</b> ignores it completely, <b>Alert only</b> records it but never blocks, <b>Drop</b> blocks matching traffic (only works in blocking mode). Overrides are written into the signature files the next time signatures are updated.</p>
+
+      <form id="ovForm" novalidate>
+        <div class="form-grid cols-3">
+          <label class="fld">
+            <span>Signature ID</span>
+            <input id="ovSid" class="in mono" type="number" min="1" step="1" placeholder="2100498" inputmode="numeric">
+          </label>
+          <label class="fld">
+            <span>Behaviour</span>
+            <span class="select-wrap">
+              <select id="ovAction" class="in">
+                <option value="disable">Disable</option>
+                <option value="alert">Alert only</option>
+                <option value="drop">Drop (block)</option>
+              </select>
+            </span>
+          </label>
+          <label class="fld">
+            <span>Note (optional)</span>
+            <input id="ovComment" class="in" type="text" maxlength="200" placeholder="Why this was changed" autocomplete="off">
+          </label>
+        </div>
+        <div id="ovError" class="form-error" role="alert" hidden></div>
+        <div class="card-foot">
+          <span class="muted">Find signature IDs in the Events tab or the top alerts list.</span>
+          <div class="btn-row">
+            <button id="btnAddOverride" class="btn primary" type="submit"><svg class="ic" aria-hidden="true"><use href="#i-plus"/></svg>Add override</button>
+            <button id="btnOvUpdate" class="btn" type="button"><svg class="ic" aria-hidden="true"><use href="#i-refresh"/></svg>Update rules now</button>
+          </div>
+        </div>
+      </form>
+    </div>
+
+    <div class="card">
+      <div class="tbl-wrap">
+        <table class="dtable">
+          <thead><tr><th>Signature ID</th><th>Behaviour</th><th>Note</th><th></th></tr></thead>
+          <tbody id="ovBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ EVENTS ============ -->
+  <section class="tab-panel" data-panel="events" hidden>
+    <div class="card">
+      <div class="toolbar">
+        <span class="select-wrap">
+          <select id="evAction" class="in" aria-label="Filter by result">
+            <option value="">All events</option>
+            <option value="blocked">Blocked</option>
+            <option value="allowed">Alerts only</option>
+          </select>
+        </span>
+        <input id="evSid" class="in mono" type="number" min="1" step="1" placeholder="Signature ID" aria-label="Filter by signature ID" inputmode="numeric">
+        <span class="grow"></span>
+        <button id="btnEvRefresh" class="btn" type="button"><svg class="ic" aria-hidden="true"><use href="#i-refresh"/></svg>Refresh</button>
+        <button id="btnEvClear" class="btn danger" type="button"><svg class="ic" aria-hidden="true"><use href="#i-trash"/></svg>Clear all</button>
+      </div>
+
+      <div class="tbl-wrap">
+        <table class="dtable">
+          <thead>
+            <tr>
+              <th>Time</th>
+              <th>Source</th>
+              <th>Destination</th>
+              <th>Protocol</th>
+              <th>Signature</th>
+              <th>Severity</th>
+              <th>Result</th>
+            </tr>
+          </thead>
+          <tbody id="evBody"></tbody>
+        </table>
+      </div>
+
+      <div class="pager">
+        <span id="evInfo"></span>
+        <div class="btn-row">
+          <button id="evPrev" class="btn sm" type="button">Previous</button>
+          <button id="evNext" class="btn sm" type="button">Next</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+</div>
+
+<script src="/js/core/api.js"></script>
+<script src="/js/core/shell.js"></script>
+<script src="/js/ids.js"></script>
+</body>
+</html>

@@ -43,6 +43,7 @@ use api::{
     one_to_one_nat as one_to_one_nat_api,
     port_forward as port_forward_api,
     route as route_api,
+    sdwan as sdwan_api,
     sni as sni_api,
     threatfeed as threatfeed_api,
     wireguard as wireguard_api,
@@ -54,6 +55,7 @@ use database::{
 };
 use firewall::{commit::FirewallCommit, safe_commit::SafeCommit};
 use routing::commit::RouteCommit;
+use sdwan::commit::SdwanCommit;
 use services::{auth_service::AuthService, login_throttle::LoginThrottle};
 use wireguard::commit::WireguardCommit;
 use tower_http::services::ServeDir;
@@ -236,6 +238,51 @@ fn build_router(state: AppState) -> Router {
         .route(
             "/api/ids/rules/update",
             post(ids_api::update_rules),
+        )
+        .route(
+            "/api/sdwan/settings",
+            get(sdwan_api::get_settings)
+                .put(sdwan_api::set_settings),
+        )
+        .route(
+            "/api/sdwan/links",
+            get(sdwan_api::list_links)
+                .post(sdwan_api::add_link),
+        )
+        .route(
+            "/api/sdwan/links/{id}",
+            put(sdwan_api::update_link)
+                .delete(sdwan_api::delete_link),
+        )
+        .route(
+            "/api/sdwan/rules",
+            get(sdwan_api::list_rules)
+                .post(sdwan_api::add_rule),
+        )
+        .route(
+            "/api/sdwan/rules/{id}",
+            put(sdwan_api::update_rule)
+                .delete(sdwan_api::delete_rule),
+        )
+        .route(
+            "/api/sdwan/status",
+            get(sdwan_api::status),
+        )
+        .route(
+            "/api/sdwan/generate",
+            get(sdwan_api::generate),
+        )
+        .route(
+            "/api/sdwan/probe",
+            post(sdwan_api::probe_now),
+        )
+        .route(
+            "/api/sdwan/commit",
+            post(sdwan_api::commit),
+        )
+        .route(
+            "/api/sdwan/rollback",
+            post(sdwan_api::rollback),
         )
         .route(
             "/api/rules",
@@ -532,12 +579,30 @@ async fn main() {
         Err(e) => eprintln!("ERROR: {}", e),
     }
 
+    // SD-WAN comes after the firewall recovery above, because loading a firewall ruleset
+    // replaces every nftables table, including the SD-WAN packet-marking table.
+    match SdwanCommit::restore_on_boot(&db, &commit_lock).await {
+        Ok(message) => println!("{}", message),
+        Err(e) => {
+            eprintln!(
+                "ERROR: could not restore the saved SD-WAN configuration: {}",
+                e
+            );
+            eprintln!(
+                "ERROR: traffic may use only the default route until an SD-WAN commit succeeds"
+            );
+        }
+    }
+
     threatintel::scheduler::spawn(db.clone(), commit_lock.clone());
 
     // Runs after the firewall rules are restored, because the IPS queue rules live in a table
     // of their own that the firewall's `flush ruleset` would otherwise remove. It also starts
     // Suricata if needed (which can take a minute), so it runs in the background.
     ids::scheduler::spawn(db.clone(), commit_lock.clone());
+
+    // Pings every WAN link and moves traffic away from links that stop answering.
+    sdwan::monitor::spawn(db.clone(), commit_lock.clone());
 
     let state = AppState {
         db,
@@ -1199,5 +1264,189 @@ mod tests {
         assert_eq!(body["enabled"], true);
         assert!(body["suricata"].get("installed").is_some());
         assert!(body["rules"].get("rule_count").is_some());
+    }
+
+    #[tokio::test]
+    async fn sdwan_routes_need_a_login_and_links_and_rules_work_end_to_end() {
+        let (app, state) = test_app().await;
+        add_user(&state, "admin", "correct-horse-battery", "admin").await;
+
+        // Every SD-WAN route is behind the login, including the ones that change the live routing.
+        for (method, uri) in [
+            (Method::GET, "/api/sdwan/settings"),
+            (Method::PUT, "/api/sdwan/settings"),
+            (Method::GET, "/api/sdwan/links"),
+            (Method::POST, "/api/sdwan/links"),
+            (Method::PUT, "/api/sdwan/links/1"),
+            (Method::DELETE, "/api/sdwan/links/1"),
+            (Method::GET, "/api/sdwan/rules"),
+            (Method::POST, "/api/sdwan/rules"),
+            (Method::PUT, "/api/sdwan/rules/1"),
+            (Method::DELETE, "/api/sdwan/rules/1"),
+            (Method::GET, "/api/sdwan/status"),
+            (Method::GET, "/api/sdwan/generate"),
+            (Method::POST, "/api/sdwan/probe"),
+            (Method::POST, "/api/sdwan/commit"),
+            (Method::POST, "/api/sdwan/rollback"),
+        ] {
+            let (status, _) = send(&app, method, uri, None, Some(json!({}))).await;
+            assert_eq!(status, StatusCode::UNAUTHORIZED, "{}", uri);
+        }
+
+        let token = log_in(&app, "admin", "correct-horse-battery").await;
+
+        // Starts switched off with nothing configured.
+        let (status, body) = send(&app, Method::GET, "/api/sdwan/settings", Some(&token), None).await;
+        assert_eq!(status, StatusCode::OK, "{}", body);
+        assert_eq!(body["enabled"], false);
+
+        // It cannot be switched on without a link.
+        let (status, _) = send(
+            &app,
+            Method::PUT,
+            "/api/sdwan/settings",
+            Some(&token),
+            Some(json!({ "enabled": true })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+
+        // Add a link. Missing fields keep their defaults.
+        let (status, body) = send(
+            &app,
+            Method::POST,
+            "/api/sdwan/links",
+            Some(&token),
+            Some(json!({ "name": "ISP1", "interface_name": "eth0", "gateway": "10.1.0.1" })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{}", body);
+        let link_id = body["id"].as_i64().unwrap();
+
+        let (status, _) = send(
+            &app,
+            Method::POST,
+            "/api/sdwan/links",
+            Some(&token),
+            Some(json!({ "name": "isp1", "interface_name": "eth2", "gateway": "10.2.0.1" })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+
+        let (_, body) = send(&app, Method::GET, "/api/sdwan/links", Some(&token), None).await;
+        assert_eq!(body.as_array().unwrap().len(), 1);
+        assert_eq!(body[0]["state"], "unknown");
+        assert_eq!(body[0]["priority"], 10);
+
+        // Testing the links does nothing while SD-WAN is off.
+        let (status, body) = send(&app, Method::POST, "/api/sdwan/probe", Some(&token), None).await;
+        assert_eq!(status, StatusCode::OK, "{}", body);
+        assert_eq!(body["probed"], 0);
+
+        // A rule that sends web traffic out of ISP1.
+        let (status, body) = send(
+            &app,
+            Method::POST,
+            "/api/sdwan/rules",
+            Some(&token),
+            Some(json!({
+                "name": "web",
+                "protocol": "tcp",
+                "dport_start": 443,
+                "dport_end": 443,
+                "strategy": "link",
+                "link_id": link_id
+            })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{}", body);
+        let rule_id = body["id"].as_i64().unwrap();
+
+        // The link is protected while the rule uses it.
+        let (status, _) = send(
+            &app,
+            Method::DELETE,
+            &format!("/api/sdwan/links/{}", link_id),
+            Some(&token),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+
+        // Now it can be switched on.
+        let (status, body) = send(
+            &app,
+            Method::PUT,
+            "/api/sdwan/settings",
+            Some(&token),
+            Some(json!({ "enabled": true })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{}", body);
+
+        let (status, body) = send(&app, Method::GET, "/api/sdwan/status", Some(&token), None).await;
+        assert_eq!(status, StatusCode::OK, "{}", body);
+        assert_eq!(body["enabled"], true);
+        assert_eq!(body["links_unknown"], 1);
+        assert_eq!(body["rules_total"], 1);
+        assert_eq!(body["links"][0]["name"], "ISP1");
+
+        // The preview shows what a commit would apply.
+        let (status, body) = send(&app, Method::GET, "/api/sdwan/generate", Some(&token), None).await;
+        assert_eq!(status, StatusCode::OK, "{}", body);
+        assert_eq!(body["enabled"], true);
+        assert!(body["nft"].as_str().unwrap().contains("iqsoft_sdwan"));
+
+        // Change the link, then take everything apart again (switched off first).
+        let (status, body) = send(
+            &app,
+            Method::PUT,
+            &format!("/api/sdwan/links/{}", link_id),
+            Some(&token),
+            Some(json!({
+                "name": "ISP1",
+                "interface_name": "eth0",
+                "gateway": "10.1.0.1",
+                "priority": 5
+            })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{}", body);
+
+        let (_, body) = send(&app, Method::GET, "/api/sdwan/links", Some(&token), None).await;
+        assert_eq!(body[0]["priority"], 5);
+
+        let (status, _) = send(
+            &app,
+            Method::PUT,
+            "/api/sdwan/settings",
+            Some(&token),
+            Some(json!({ "enabled": false })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+
+        let (status, _) = send(
+            &app,
+            Method::DELETE,
+            &format!("/api/sdwan/rules/{}", rule_id),
+            Some(&token),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+
+        let (status, _) = send(
+            &app,
+            Method::DELETE,
+            &format!("/api/sdwan/links/{}", link_id),
+            Some(&token),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+
+        let (_, body) = send(&app, Method::GET, "/api/sdwan/links", Some(&token), None).await;
+        assert!(body.as_array().unwrap().is_empty());
     }
 }
