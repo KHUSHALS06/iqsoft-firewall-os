@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'self'">
+<title>Antivirus | IQSOFT Firewall OS</title>
+<link rel="stylesheet" href="/css/base.css">
+<link rel="stylesheet" href="/css/dashboard.css">
+<link rel="stylesheet" href="/css/pages.css">
+</head>
+<body class="dash-body">
+
+<div id="page" hidden>
+
+  <div id="pending"></div>
+  <div id="notice"></div>
+
+  <section class="stats">
+    <div class="card stat s-blue">
+      <div class="s-ico"><svg class="ic" aria-hidden="true"><use href="#i-list"/></svg></div>
+      <div class="s-body">
+        <b id="stTotal">–</b>
+        <span>Detections stored</span>
+      </div>
+    </div>
+    <div class="card stat s-green">
+      <div class="s-ico"><svg class="ic" aria-hidden="true"><use href="#i-ban"/></svg></div>
+      <div class="s-body">
+        <b id="stBlocked">–</b>
+        <span>Blocked (last 24 h)</span>
+      </div>
+    </div>
+    <div class="card stat s-amber">
+      <div class="s-ico"><svg class="ic" aria-hidden="true"><use href="#i-eye"/></svg></div>
+      <div class="s-body">
+        <b id="stMonitored">–</b>
+        <span>Detected only (last 24 h)</span>
+      </div>
+    </div>
+    <div class="card stat s-red">
+      <div class="s-ico"><svg class="ic" aria-hidden="true"><use href="#i-alert"/></svg></div>
+      <div class="s-body">
+        <b id="stErrors">–</b>
+        <span>Scan errors (last 24 h)</span>
+      </div>
+    </div>
+  </section>
+
+  <div class="tabs" id="tabBar" role="tablist">
+    <button class="tab" type="button" data-tab="overview" role="tab">Overview</button>
+    <button class="tab" type="button" data-tab="settings" role="tab">Settings</button>
+    <button class="tab" type="button" data-tab="exceptions" role="tab">Exceptions <span id="tabCountExceptions" class="count">0</span></button>
+    <button class="tab" type="button" data-tab="events" role="tab">Detections</button>
+  </div>
+
+  <section class="tab-panel" data-panel="overview">
+    <div class="row r-two">
+      <div class="card">
+        <div class="card-h"><h3><svg class="ic h-ic" aria-hidden="true"><use href="#i-shield-check"/></svg>Protection status</h3></div>
+        <dl id="engStatus" class="kv"></dl>
+      </div>
+
+      <div class="card">
+        <div class="card-h"><h3><svg class="ic h-ic" aria-hidden="true"><use href="#i-pulse"/></svg>Since the firewall started</h3></div>
+        <dl id="countersInfo" class="kv"></dl>
+        <div class="card-foot">
+          <span class="muted">Web downloads over plain HTTP are checked by ClamAV before they reach your devices.</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-h"><h3><svg class="ic h-ic" aria-hidden="true"><use href="#i-crosshair"/></svg>Latest detections</h3></div>
+      <div class="tbl-wrap">
+        <table class="dtable">
+          <thead><tr><th>Time</th><th>Client</th><th>Site</th><th>Threat</th><th>Result</th></tr></thead>
+          <tbody id="recentBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section class="tab-panel" data-panel="settings" hidden>
+    <form id="settingsForm" class="card" novalidate>
+      <div class="card-h"><h3><svg class="ic h-ic" aria-hidden="true"><use href="#i-gear"/></svg>Antivirus settings</h3></div>
+      <p class="card-sub">The scanner picks up saved changes within a few seconds. Turning antivirus on or off, or changing the port, also needs <b>Apply</b> so the firewall redirects web traffic to the scanner.</p>
+
+      <div class="switch-row">
+        <label class="switch"><input id="sEnabled" type="checkbox"><span class="slider"></span></label>
+        <div class="switch-text">
+          <b>Turn on antivirus</b>
+          <span>Scans files downloaded over HTTP with ClamAV.</span>
+        </div>
+      </div>
+
+      <hr class="divider">
+
+      <div class="form-grid">
+        <label class="fld">
+          <span>Mode</span>
+          <span class="select-wrap">
+            <select id="sMode" class="in">
+              <option value="block">Block infected files</option>
+              <option value="monitor">Detect only (monitor)</option>
+            </select>
+          </span>
+          <small id="sModeHelp"></small>
+        </label>
+
+        <label class="fld">
+          <span>Largest file to scan (MB)</span>
+          <input id="sMaxScan" class="in" type="number" min="1" max="512" step="1">
+          <small>Files bigger than this are not scanned. Allowed range is 1 to 512.</small>
+        </label>
+
+        <label class="fld">
+          <span>Files over that size</span>
+          <span class="select-wrap">
+            <select id="sOverSize" class="in">
+              <option value="allow">Let them through unscanned</option>
+              <option value="block">Block them</option>
+            </select>
+          </span>
+          <small>Blocking is safer but stops very large downloads.</small>
+        </label>
+
+        <label class="fld">
+          <span>If the scanner fails</span>
+          <span class="select-wrap">
+            <select id="sFailMode" class="in">
+              <option value="open">Let downloads through (safe)</option>
+              <option value="closed">Block downloads (strict)</option>
+            </select>
+          </span>
+          <small id="sFailHelp"></small>
+        </label>
+
+        <label class="fld">
+          <span>Scanner port</span>
+          <input id="sPort" class="in" type="number" min="1024" max="65535" step="1">
+          <small>Local port of the scanning proxy (1024 to 65535). Press Apply after changing it.</small>
+        </label>
+
+        <label class="fld">
+          <span>ClamAV socket</span>
+          <input id="sSocket" class="in mono" type="text" placeholder="/run/clamav/clamd.ctl" autocomplete="off" spellcheck="false">
+          <small>Full path of the clamd socket on this firewall.</small>
+        </label>
+      </div>
+
+      <hr class="divider">
+
+      <div class="switch-row">
+        <label class="switch"><input id="sArchives" type="checkbox"><span class="slider"></span></label>
+        <div class="switch-text">
+          <b>Look inside archives</b>
+          <span>Checks files inside zip, rar and similar archives.</span>
+        </div>
+      </div>
+
+      <div class="switch-row">
+        <label class="switch"><input id="sEncrypted" type="checkbox"><span class="slider"></span></label>
+        <div class="switch-text">
+          <b>Block password-protected archives</b>
+          <span>These cannot be scanned, so attackers often use them to hide malware.</span>
+        </div>
+      </div>
+
+      <div id="settingsError" class="form-error" role="alert" hidden></div>
+
+      <div class="card-foot">
+        <span id="settingsState" class="muted"></span>
+        <div class="btn-row">
+          <button id="btnSaveSettings" class="btn" type="submit">Save</button>
+          <button id="btnSaveApply" class="btn primary" type="button">Save and apply</button>
+        </div>
+      </div>
+    </form>
+  </section>
+
+  <section class="tab-panel" data-panel="exceptions" hidden>
+    <div class="card">
+      <div class="card-h"><h3><svg class="ic h-ic" aria-hidden="true"><use href="#i-shield"/></svg>Never scan</h3></div>
+      <p class="card-sub">Downloads from these sites or to these networks skip the scan. Use this for trusted update servers or internal networks.</p>
+
+      <form id="exForm" novalidate>
+        <div class="form-grid cols-3">
+          <label class="fld">
+            <span>Type</span>
+            <span class="select-wrap">
+              <select id="exKind" class="in">
+                <option value="domain">Website (domain)</option>
+                <option value="cidr">Network or IP address</option>
+              </select>
+            </span>
+          </label>
+          <label class="fld">
+            <span id="exValueLabel">Domain</span>
+            <input id="exValue" class="in mono" type="text" placeholder="updates.example.com" autocomplete="off" spellcheck="false">
+          </label>
+          <label class="fld">
+            <span>Note (optional)</span>
+            <input id="exComment" class="in" type="text" maxlength="200" placeholder="Why this is trusted" autocomplete="off">
+          </label>
+        </div>
+        <div id="exError" class="form-error" role="alert" hidden></div>
+        <div class="card-foot">
+          <span id="exHelp" class="muted"></span>
+          <div class="btn-row">
+            <button id="btnAddException" class="btn primary" type="submit"><svg class="ic" aria-hidden="true"><use href="#i-plus"/></svg>Add exception</button>
+          </div>
+        </div>
+      </form>
+    </div>
+
+    <div class="card">
+      <div class="tbl-wrap">
+        <table class="dtable">
+          <thead><tr><th>Type</th><th>Value</th><th>Note</th><th></th></tr></thead>
+          <tbody id="exBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section class="tab-panel" data-panel="events" hidden>
+    <div class="card">
+      <div class="toolbar">
+        <span class="select-wrap">
+          <select id="evAction" class="in" aria-label="Filter by result">
+            <option value="">All detections</option>
+            <option value="blocked">Blocked</option>
+            <option value="monitored">Detected only</option>
+            <option value="error">Scan errors</option>
+          </select>
+        </span>
+        <span class="grow"></span>
+        <button id="btnEvRefresh" class="btn" type="button"><svg class="ic" aria-hidden="true"><use href="#i-refresh"/></svg>Refresh</button>
+        <button id="btnEvClear" class="btn danger" type="button"><svg class="ic" aria-hidden="true"><use href="#i-trash"/></svg>Clear all</button>
+      </div>
+
+      <div class="tbl-wrap">
+        <table class="dtable">
+          <thead>
+            <tr>
+              <th>Time</th>
+              <th>Client</th>
+              <th>Site and file</th>
+              <th>Size</th>
+              <th>Engine</th>
+              <th>Threat</th>
+              <th>Result</th>
+            </tr>
+          </thead>
+          <tbody id="evBody"></tbody>
+        </table>
+      </div>
+
+      <div class="pager">
+        <span id="evInfo"></span>
+        <div class="btn-row">
+          <button id="evPrev" class="btn sm" type="button">Previous</button>
+          <button id="evNext" class="btn sm" type="button">Next</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+</div>
+
+<script src="/js/core/api.js"></script>
+<script src="/js/core/shell.js"></script>
+<script src="/js/antivirus.js"></script>
+</body>
+</html>

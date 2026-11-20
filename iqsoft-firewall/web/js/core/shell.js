@@ -16,6 +16,7 @@
     { id: 'nat', label: 'NAT / Port Forwarding', icon: 'i-swap', href: '/html/nat.html', chev: 'right' },
     { id: 'threat', label: 'Threat Intelligence', icon: 'i-target', href: '/html/threat.html', chev: 'right' },
     { id: 'ids', label: 'Intrusion Detection', icon: 'i-pulse', href: '/html/ids.html', chev: 'right' },
+    { id: 'antivirus', label: 'Antivirus', icon: 'i-shield-check', href: '/html/antivirus.html', chev: 'right' },
     { id: 'vpn', label: 'VPN', icon: 'i-key', href: '/html/vpn.html', chev: 'right' },
     { id: 'monitoring', label: 'Monitoring', icon: 'i-bars', chev: 'right' },
     { id: 'logs', label: 'Logs', icon: 'i-file' },
