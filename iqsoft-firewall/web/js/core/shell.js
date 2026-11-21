@@ -23,7 +23,7 @@
     { id: 'vpn', label: 'VPN', icon: 'i-key', href: '/html/vpn.html', chev: 'right' },
     { id: 'monitoring', label: 'Monitoring', icon: 'i-bars', href: '/html/monitoring.html', chev: 'right' },
     { id: 'logs', label: 'Logs', icon: 'i-file', href: '/html/logs.html' },
-    { id: 'reports', label: 'Reports', icon: 'i-pie' },
+    { id: 'reports', label: 'Reports', icon: 'i-pie', href: '/html/reports.html' },	  
     { id: 'system', label: 'System', icon: 'i-gear', href: '/html/system.html', chev: 'right' }
   ];
 
