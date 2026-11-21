@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'self'">
+<title>Reports | IQSOFT Firewall OS</title>
+<link rel="stylesheet" href="/css/base.css">
+<link rel="stylesheet" href="/css/dashboard.css">
+<link rel="stylesheet" href="/css/pages.css">
+<link rel="stylesheet" href="/css/clean.css">
+</head>
+<body class="dash-body">
+
+<div id="page" hidden>
+
+  <div class="card">
+    <div class="card-h"><h3><svg class="ic h-ic" aria-hidden="true"><use href="#i-pie"/></svg>Security report</h3></div>
+    <p class="card-sub" id="reportSub">Pick a period. The report is built from the firewall log, intrusion detection, antivirus and audit events stored on this firewall.</p>
+    <div class="toolbar" id="reportTools"></div>
+  </div>
+
+  <section class="stats" id="statsBox"></section>
+
+  <div id="idsNotice"></div>
+  <div class="card">
+    <div class="card-h"><h3><svg class="ic h-ic" aria-hidden="true"><use href="#i-pulse"/></svg>Intrusion detection</h3></div>
+    <p class="card-sub" id="idsSub">Loading…</p>
+  </div>
+  <div class="row r-two" id="idsRow1"></div>
+  <div class="row r-two" id="idsRow2"></div>
+
+  <div id="avNotice"></div>
+  <div class="card">
+    <div class="card-h"><h3><svg class="ic h-ic" aria-hidden="true"><use href="#i-shield-check"/></svg>Antivirus</h3></div>
+    <p class="card-sub" id="avSub">Loading…</p>
+  </div>
+  <div class="row r-two" id="avRow1"></div>
+  <div class="row r-two" id="avRow2"></div>
+
+  <div id="fwNotice"></div>
+  <div class="card">
+    <div class="card-h"><h3><svg class="ic h-ic" aria-hidden="true"><use href="#i-shield"/></svg>Firewall traffic</h3></div>
+    <p class="card-sub" id="fwSub">Loading…</p>
+  </div>
+  <div class="row r-two" id="fwRow1"></div>
+  <div class="row r-two" id="fwRow2"></div>
+
+  <div id="auditNotice"></div>
+  <div class="card">
+    <div class="card-h"><h3><svg class="ic h-ic" aria-hidden="true"><use href="#i-file"/></svg>Administrator activity</h3></div>
+    <p class="card-sub" id="auditSub">Loading…</p>
+  </div>
+  <div class="row r-two" id="auditRow1"></div>
+  <div class="card" id="auditFailCard" hidden>
+    <div class="card-h"><h3><svg class="ic h-ic" aria-hidden="true"><use href="#i-alert"/></svg>Latest failed actions</h3></div>
+    <div class="tbl-wrap">
+      <table class="dtable">
+        <thead><tr><th>Time</th><th>User</th><th>Event</th><th>Details</th><th>From</th></tr></thead>
+        <tbody id="auditFailBody"></tbody>
+      </table>
+    </div>
+  </div>
+
+</div>
+
+<script src="/js/core/api.js"></script>
+<script src="/js/core/shell.js"></script>
+<script src="/js/reports.js"></script>
+</body>
+</html>

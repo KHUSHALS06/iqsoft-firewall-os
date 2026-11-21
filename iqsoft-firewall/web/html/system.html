@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'self'">
+<title>System | IQSOFT Firewall OS</title>
+<link rel="stylesheet" href="/css/base.css">
+<link rel="stylesheet" href="/css/dashboard.css">
+<link rel="stylesheet" href="/css/pages.css">
+<link rel="stylesheet" href="/css/clean.css">
+</head>
+<body class="dash-body">
+
+<div id="page" hidden>
+
+  <div id="pageNotice"></div>
+
+  <div class="tabs" id="tabBar" role="tablist">
+    <button class="tab" type="button" data-tab="about" role="tab">About</button>
+    <button class="tab" type="button" data-tab="account" role="tab">Account</button>
+    <button class="tab" type="button" data-tab="backup" role="tab">Backup &amp; Restore</button>
+    <button class="tab" type="button" data-tab="power" role="tab">Power</button>
+  </div>
+
+  <section class="tab-panel" data-panel="about">
+    <div class="card">
+      <div class="card-h"><h3><svg class="ic h-ic" aria-hidden="true"><use href="#i-gear"/></svg>System information</h3></div>
+      <div class="tbl-wrap">
+        <table class="dtable">
+          <tbody id="infoBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section class="tab-panel" data-panel="account" hidden>
+    <div class="card">
+      <div class="card-h"><h3><svg class="ic h-ic" aria-hidden="true"><use href="#i-key"/></svg>Change password</h3></div>
+      <p class="card-sub" id="accountSub">Choose a new password for your account. You will be signed out afterwards.</p>
+      <div id="pwForm"></div>
+    </div>
+  </section>
+
+  <section class="tab-panel" data-panel="backup" hidden>
+    <div id="restoreNotice"></div>
+    <div class="card">
+      <div class="card-h"><h3><svg class="ic h-ic" aria-hidden="true"><use href="#i-file"/></svg>Download a backup</h3></div>
+      <p class="card-sub">A single file with every setting on this firewall: rules, NAT, network, VPN, filters and user accounts. It contains password hashes and VPN keys, so keep it somewhere safe.</p>
+      <div class="btn-row" id="backupActions"></div>
+    </div>
+    <div class="card">
+      <div class="card-h"><h3><svg class="ic h-ic" aria-hidden="true"><use href="#i-undo"/></svg>Restore from a backup</h3></div>
+      <p class="card-sub">The file is checked first and then stored. It replaces the current configuration the next time the firewall service starts, so nothing changes until you reboot. The configuration it replaces is kept on the disk as <span class="mono">firewall.db.before-restore</span>.</p>
+      <div id="restoreForm"></div>
+    </div>
+  </section>
+
+  <section class="tab-panel" data-panel="power" hidden>
+    <div class="card">
+      <div class="card-h"><h3><svg class="ic h-ic" aria-hidden="true"><use href="#i-refresh"/></svg>Reboot</h3></div>
+      <p class="card-sub">Restart this firewall. Traffic through it stops for a minute or two. Saved rules are loaded again when it comes back.</p>
+      <div class="btn-row" id="rebootActions"></div>
+    </div>
+    <div class="card">
+      <div class="card-h"><h3><svg class="ic h-ic" aria-hidden="true"><use href="#i-ban"/></svg>Shut down</h3></div>
+      <p class="card-sub">Power this firewall off. You will need physical access or a remote power control to turn it on again.</p>
+      <div class="btn-row" id="shutdownActions"></div>
+    </div>
+  </section>
+
+</div>
+
+<script src="/js/core/api.js"></script>
+<script src="/js/core/shell.js"></script>
+<script src="/js/system.js"></script>
+</body>
+</html>

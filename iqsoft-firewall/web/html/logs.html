@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'self'">
+<title>Logs | IQSOFT Firewall OS</title>
+<link rel="stylesheet" href="/css/base.css">
+<link rel="stylesheet" href="/css/dashboard.css">
+<link rel="stylesheet" href="/css/pages.css">
+<link rel="stylesheet" href="/css/clean.css">
+</head>
+<body class="dash-body">
+
+<div id="page" hidden>
+
+  <div class="tabs" id="tabBar" role="tablist">
+    <button class="tab" type="button" data-tab="traffic" role="tab">Firewall Log <span id="countTraffic" class="count">0</span></button>
+    <button class="tab" type="button" data-tab="audit" role="tab">Audit Trail <span id="countAudit" class="count">0</span></button>
+  </div>
+
+  <section class="tab-panel" data-panel="traffic">
+    <div class="card">
+      <div class="card-h"><h3><svg class="ic h-ic" aria-hidden="true"><use href="#i-shield"/></svg>Firewall log</h3></div>
+      <p class="card-sub" id="trafficSub">Packets matched by rules that have logging turned on, newest first.</p>
+      <div id="trafficNotice"></div>
+      <div class="toolbar" id="trafficTools"></div>
+      <div class="tbl-wrap">
+        <table class="dtable">
+          <thead><tr><th>Time</th><th>Rule</th><th>Action</th><th>Protocol</th><th>Source</th><th>Destination</th><th>In / Out</th><th>Size</th><th>Flags</th></tr></thead>
+          <tbody id="trafficBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section class="tab-panel" data-panel="audit" hidden>
+    <div class="card">
+      <div class="card-h"><h3><svg class="ic h-ic" aria-hidden="true"><use href="#i-file"/></svg>Audit trail</h3></div>
+      <p class="card-sub" id="auditSub">Who signed in, changed rules or applied the firewall, newest first. Only administrators can read it.</p>
+      <div id="auditNotice"></div>
+      <div class="toolbar" id="auditTools"></div>
+      <div class="tbl-wrap">
+        <table class="dtable">
+          <thead><tr><th>Time</th><th>User</th><th>Event</th><th>Target</th><th>Details</th><th>Result</th><th>From</th></tr></thead>
+          <tbody id="auditBody"></tbody>
+        </table>
+      </div>
+      <div class="toolbar" id="auditPager"></div>
+    </div>
+  </section>
+
+</div>
+
+<script src="/js/core/api.js"></script>
+<script src="/js/core/shell.js"></script>
+<script src="/js/logs.js"></script>
+</body>
+</html>

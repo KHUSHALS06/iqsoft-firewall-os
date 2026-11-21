@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'self'">
+<title>Monitoring | IQSOFT Firewall OS</title>
+<link rel="stylesheet" href="/css/base.css">
+<link rel="stylesheet" href="/css/dashboard.css">
+<link rel="stylesheet" href="/css/pages.css">
+<link rel="stylesheet" href="/css/clean.css">
+</head>
+<body class="dash-body">
+
+<div id="page" hidden>
+
+  <div class="tabs" id="tabBar" role="tablist">
+    <button class="tab" type="button" data-tab="overview" role="tab">Overview</button>
+    <button class="tab" type="button" data-tab="connections" role="tab">Connections <span id="countConn" class="count">0</span></button>
+    <button class="tab" type="button" data-tab="counters" role="tab">Rule Counters <span id="countCnt" class="count">0</span></button>
+  </div>
+
+  <section class="tab-panel" data-panel="overview">
+    <section class="stats">
+      <div class="card stat s-blue">
+        <div class="s-ico"><svg class="ic" aria-hidden="true"><use href="#i-pulse"/></svg></div>
+        <div class="s-body"><b id="stCpu">–</b><span>CPU load</span></div>
+      </div>
+      <div class="card stat s-green">
+        <div class="s-ico"><svg class="ic" aria-hidden="true"><use href="#i-bars"/></svg></div>
+        <div class="s-body"><b id="stMem">–</b><span>Memory</span><em id="stMemSub" class="trend">–</em></div>
+      </div>
+      <div class="card stat s-amber">
+        <div class="s-ico"><svg class="ic" aria-hidden="true"><use href="#i-file"/></svg></div>
+        <div class="s-body"><b id="stDisk">–</b><span>Disk (/)</span><em id="stDiskSub" class="trend">–</em></div>
+      </div>
+      <div class="card stat s-red">
+        <div class="s-ico"><svg class="ic" aria-hidden="true"><use href="#i-refresh"/></svg></div>
+        <div class="s-body"><b id="stUptime" class="small">–</b><span>Uptime</span></div>
+      </div>
+    </section>
+
+    <div class="card">
+      <div class="card-h"><h3><svg class="ic h-ic" aria-hidden="true"><use href="#i-swap"/></svg>Connection tracking table</h3></div>
+      <p class="card-sub">How full the kernel's connection table is. When it fills up, new connections are dropped.</p>
+      <div id="ctBox"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-h"><h3><svg class="ic h-ic" aria-hidden="true"><use href="#i-network"/></svg>Interface traffic</h3></div>
+      <p class="card-sub">Speeds are worked out from the change between two readings, taken every few seconds.</p>
+      <div class="tbl-wrap">
+        <table class="dtable">
+          <thead><tr><th>Name</th><th>State</th><th>Download</th><th>Upload</th><th>Total received</th><th>Total sent</th><th>Errors / drops</th></tr></thead>
+          <tbody id="ifBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section class="tab-panel" data-panel="connections" hidden>
+    <div class="card">
+      <div class="card-h"><h3><svg class="ic h-ic" aria-hidden="true"><use href="#i-swap"/></svg>Active connections</h3></div>
+      <p class="card-sub" id="connSub">Connections currently tracked by the firewall.</p>
+      <div id="connNotice"></div>
+      <div class="toolbar" id="connTools"></div>
+      <div class="tbl-wrap">
+        <table class="dtable">
+          <thead><tr><th>Protocol</th><th>State</th><th>Source</th><th>Destination</th><th>NAT reply to</th><th>Sent / received</th><th>Expires in</th><th>Flags</th></tr></thead>
+          <tbody id="connBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section class="tab-panel" data-panel="counters" hidden>
+    <div class="card">
+      <div class="card-h"><h3><svg class="ic h-ic" aria-hidden="true"><use href="#i-shield"/></svg>Firewall rule counters</h3></div>
+      <p class="card-sub">Packets and bytes matched by each rule. Totals start again from zero every time rules are applied.</p>
+      <div id="cntNotice"></div>
+      <div class="tbl-wrap">
+        <table class="dtable">
+          <thead><tr><th>Rule</th><th>Chain</th><th>Action</th><th>Packets</th><th>Bytes</th></tr></thead>
+          <tbody id="cntBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+</div>
+
+<script src="/js/core/api.js"></script>
+<script src="/js/core/shell.js"></script>
+<script src="/js/monitoring.js"></script>
+</body>
+</html>

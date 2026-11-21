@@ -21,10 +21,10 @@
     { id: 'dnsfilter', label: 'DNS Filter', icon: 'i-globe', href: '/html/dnsfilter.html', chev: 'right' },
     { id: 'sni', label: 'App Control', icon: 'i-ban', href: '/html/sni.html', chev: 'right' },
     { id: 'vpn', label: 'VPN', icon: 'i-key', href: '/html/vpn.html', chev: 'right' },
-    { id: 'monitoring', label: 'Monitoring', icon: 'i-bars', chev: 'right' },
-    { id: 'logs', label: 'Logs', icon: 'i-file' },
+    { id: 'monitoring', label: 'Monitoring', icon: 'i-bars', href: '/html/monitoring.html', chev: 'right' },
+    { id: 'logs', label: 'Logs', icon: 'i-file', href: '/html/logs.html' },
     { id: 'reports', label: 'Reports', icon: 'i-pie' },
-    { id: 'system', label: 'System', icon: 'i-gear', chev: 'right' }
+    { id: 'system', label: 'System', icon: 'i-gear', href: '/html/system.html', chev: 'right' }
   ];
 
   /* ---------------- icons ---------------- */
