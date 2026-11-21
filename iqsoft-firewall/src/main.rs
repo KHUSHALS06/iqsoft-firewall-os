@@ -6,6 +6,7 @@ mod dns;
 mod firewall;
 mod models;
 mod monitor;
+mod netconfig;
 mod repository;
 mod routing;
 mod services;
@@ -38,6 +39,7 @@ use api::{
     geoip as geoip_api,
     health,
     ids as ids_api,
+    interface_config as interface_config_api,
     monitor as monitor_api,
     network_config as network_config_api,
     one_to_one_nat as one_to_one_nat_api,
@@ -55,6 +57,7 @@ use database::{
     init::initialize_database,
 };
 use firewall::{commit::FirewallCommit, safe_commit::SafeCommit};
+use netconfig::commit::InterfaceCommit;
 use routing::commit::RouteCommit;
 use sdwan::commit::SdwanCommit;
 use services::{auth_service::AuthService, login_throttle::LoginThrottle};
@@ -314,6 +317,39 @@ fn build_router(state: AppState) -> Router {
             get(firewall_api::generate_config),
         )
         .route(
+            "/api/interfaces",
+            get(interface_config_api::list),
+        )
+        .route(
+            "/api/interfaces/live",
+            get(interface_config_api::live_state),
+        )
+        .route(
+            "/api/interfaces/generate",
+            get(interface_config_api::generate),
+        )
+        .route(
+            "/api/interfaces/status",
+            get(interface_config_api::status),
+        )
+        .route(
+            "/api/interfaces/commit",
+            post(interface_config_api::commit),
+        )
+        .route(
+            "/api/interfaces/confirm",
+            post(interface_config_api::confirm),
+        )
+        .route(
+            "/api/interfaces/rollback",
+            post(interface_config_api::rollback),
+        )
+        .route(
+            "/api/interfaces/{name}",
+            put(interface_config_api::save)
+                .delete(interface_config_api::remove),
+        )
+        .route(
             "/api/network",
             get(network_config_api::get_network_config)
                 .put(network_config_api::set_network_config),
@@ -557,6 +593,16 @@ async fn main() {
             );
             eprintln!(
                 "ERROR: the firewall may be running with an empty ruleset until a commit succeeds"
+            );
+        }
+    }
+
+    match InterfaceCommit::restore_on_boot(&commit_lock).await {
+        Ok(message) => println!("{}", message),
+        Err(e) => {
+            eprintln!(
+                "ERROR: could not restore the saved port settings: {}",
+                e
             );
         }
     }

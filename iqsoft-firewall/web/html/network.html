@@ -25,6 +25,18 @@
 
   <!-- INTERFACES -->
   <section class="tab-panel" data-panel="interfaces">
+    <div id="ifConfirm"></div>
+    <div id="ifApply"></div>
+    <div class="card">
+      <div class="card-h"><h3><svg class="ic h-ic" aria-hidden="true"><use href="#i-gear"/></svg>Port settings</h3></div>
+      <p class="card-sub">Set the IP address, gateway, DNS servers and MTU of each port, or let a port get its address by DHCP. Saving stores the settings; press <b>Apply</b> to make them live. They are kept after a reboot.</p>
+      <div class="tbl-wrap">
+        <table class="dtable">
+          <thead><tr><th>Port</th><th>State</th><th>Current address</th><th>Saved setting</th><th></th></tr></thead>
+          <tbody id="portBody"></tbody>
+        </table>
+      </div>
+    </div>
     <div class="card">
       <div class="card-h"><h3><svg class="ic h-ic" aria-hidden="true"><use href="#i-network"/></svg>WAN / LAN assignment</h3></div>
       <p class="card-sub">Choose which interface faces the internet and which faces your internal network. The firewall uses these when you apply firewall rules.</p>

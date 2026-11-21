@@ -8,6 +8,7 @@
   const POLL_MS = 3000;
   const SLOW_EVERY = 4;            // slow data is read every 4th poll
   const LOG_LIMIT = 1000;
+  const EVENT_LIMIT = 500;         // most the IDS and antivirus APIs return per request
   const BUCKETS = 36;
 
   const RANGES = {
@@ -71,6 +72,9 @@
     rulesOk: false,
     netcfg: null,
     logs: [],
+    ids: [],
+    av: [],
+    events: [],
     feeds: [],
     hist: { rx: [], tx: [], t: [] },
     spark: { total: [], allowed: [], blocked: [], threats: [] },
@@ -540,22 +544,53 @@
     $('donutTotal').textContent = num(total);
   }
 
-  /* ---------------- logs: threats, events, notifications ---------------- */
+  /* ---------------- security events: firewall + IDS + antivirus ---------------- */
+
+  const secs = (t) => { t = Number(t) || 0; return t > 1e12 ? t / 1000 : t; };
 
   function ruleOf(l) { return state.rules[l.rule_id]; }
 
-  function isBlock(l) {
+  function fwBlock(l) {
     const r = ruleOf(l);
     const a = r ? String(r.action).toLowerCase() : '';
     return a === 'drop' || a === 'reject';
   }
 
-  function ruleName(l) {
+  function fwName(l) {
     const r = ruleOf(l);
     return r && r.name ? r.name : 'Rule ' + l.rule_id;
   }
 
+  // One list for everything that can show up as a security event, newest first.
+  function buildEvents() {
+    const out = [];
+    state.logs.forEach((l) => {
+      const block = fwBlock(l);
+      out.push({
+        kind: 'fw', time: secs(l.time), src: l.src, dst: l.dst, sport: l.sport, dport: l.dport,
+        protocol: l.protocol, block, threat: block, name: fwName(l), rule_id: l.rule_id
+      });
+    });
+    state.ids.forEach((e) => {
+      out.push({
+        kind: 'ids', time: secs(e.ts), src: e.src_ip, dst: e.dest_ip, sport: e.src_port, dport: e.dest_port,
+        protocol: e.proto, block: String(e.action).toLowerCase() === 'blocked', threat: true,
+        name: e.signature || 'IDS alert'
+      });
+    });
+    state.av.forEach((e) => {
+      out.push({
+        kind: 'av', time: secs(e.ts), src: e.client_ip, dst: e.host, sport: null, dport: null,
+        protocol: 'http', block: String(e.action).toLowerCase().includes('block'), threat: true,
+        name: e.signature || 'Malware'
+      });
+    });
+    out.sort((a, b) => b.time - a.time);
+    state.events = out;
+  }
+
   function shortName(s) {
+    s = String(s);
     return s.length > 15 ? s.slice(0, 14) + '…' : s;
   }
 
@@ -572,8 +607,29 @@
   function matches(l) {
     const q = state.query;
     if (!q) return true;
-    return [l.src, l.dst, l.dport, l.sport, l.protocol, ruleName(l), l.rule_id]
+    const kind = l.kind === 'ids' ? 'ids intrusion' : l.kind === 'av' ? 'antivirus malware virus' : 'firewall';
+    return [l.src, l.dst, l.dport, l.sport, l.protocol, l.name, l.rule_id, kind]
       .some((v) => v != null && String(v).toLowerCase().includes(q));
+  }
+
+  function verb(l) {
+    if (l.kind === 'fw') return l.block ? 'Blocked' : 'Allowed';
+    return l.block ? 'Blocked' : 'Detected';
+  }
+
+  function message(l) {
+    if (l.kind === 'ids') return verb(l) + ' intrusion “' + l.name + '” from ' + l.src + ' to ' + target(l);
+    if (l.kind === 'av') return verb(l) + ' malware ' + l.name + ' for ' + l.src + ' (' + l.dst + ')';
+    return verb(l) + ' ' + String(l.protocol).toUpperCase() + ' from ' + l.src + ' to ' + target(l);
+  }
+
+  function tagText(l) {
+    return l.kind === 'ids' ? 'IDS' : l.kind === 'av' ? 'Antivirus' : shortName(l.name);
+  }
+
+  function tagClass(l) {
+    if (l.block) return 'tag-red';
+    return l.kind === 'fw' ? 'tag-blue' : 'tag-orange';
   }
 
   function renderThreats() {
@@ -581,15 +637,15 @@
     const sec = RANGES[state.range].sec;
     $('threatRange').textContent = RANGES[state.range].label;
 
-    const current = state.logs.filter((l) => inRange(l, 0));
-    const threats = current.filter(isBlock);
-
+    const threats = state.events.filter((l) => l.threat && inRange(l, 0));
     $('threatCount').textContent = num(threats.length);
 
     // Compare with the same length of time just before this one.
-    const prev = state.logs.filter((l) => inRange(l, 1) && isBlock(l)).length;
-    const oldest = state.logs.length ? Math.min(...state.logs.map((l) => l.time)) : now;
-    const complete = state.logs.length < LOG_LIMIT || oldest <= now - sec * 2;
+    const prev = state.events.filter((l) => l.threat && inRange(l, 1)).length;
+    // The trend is only trusted when every source reached back far enough.
+    const sources = [[state.logs, LOG_LIMIT, 'time'], [state.ids, EVENT_LIMIT, 'ts'], [state.av, EVENT_LIMIT, 'ts']];
+    const complete = sources.every(([list, limit, key]) =>
+      list.length < limit || Math.min(...list.map((x) => secs(x[key]))) <= now - sec * 2);
     const pill = $('threatTrend');
     if (!complete) {
       pill.textContent = '–';
@@ -621,7 +677,7 @@
   function renderTopBlocked(threats) {
     const bySrc = {};
     threats.filter(matches).forEach((l) => {
-      const s = bySrc[l.src] || (bySrc[l.src] = { n: 0, ports: new Set(), rule: ruleName(l) });
+      const s = bySrc[l.src] || (bySrc[l.src] = { n: 0, ports: new Set(), name: l.name, kind: l.kind });
       s.n++;
       if (l.dport) s.ports.add(l.dport);
     });
@@ -630,7 +686,7 @@
     tb.replaceChildren();
     if (!top.length) {
       const tr = el('tr');
-      const td = el('td', 'empty', state.query ? 'No matches' : 'No blocked traffic logged');
+      const td = el('td', 'empty', state.query ? 'No matches' : 'No threats logged');
       td.colSpan = 3;
       tr.append(td);
       tb.append(tr);
@@ -638,9 +694,12 @@
     }
     top.forEach(([ip, s]) => {
       const scan = s.ports.size >= 5;
+      const label = scan ? 'Port Scan' : s.kind === 'av' ? 'Malware' : shortName(s.name);
       const tr = el('tr');
       const tdTag = el('td');
-      tdTag.append(el('span', 'tag ' + (scan ? 'tag-orange' : 'tag-red'), scan ? 'Port Scan' : shortName(s.rule)));
+      const tag = el('span', 'tag ' + (scan ? 'tag-orange' : 'tag-red'), label);
+      tag.title = s.name;
+      tdTag.append(tag);
       tr.append(el('td', '', ip), el('td', '', num(s.n)), tdTag);
       tb.append(tr);
     });
@@ -649,8 +708,7 @@
   function renderEvents() {
     const ev = $('events');
     ev.replaceChildren();
-    const list = state.logs.filter((l) => inRange(l, 0)).filter(matches)
-      .slice().sort((a, b) => b.time - a.time)
+    const list = state.events.filter((l) => inRange(l, 0)).filter(matches)
       .slice(0, state.expanded ? 30 : 6);
 
     $('viewAllEvents').firstChild.textContent = state.expanded ? 'Show Less' : 'View All';
@@ -662,19 +720,20 @@
       return;
     }
     list.forEach((l) => {
-      const block = isBlock(l);
       const li = el('li');
       const t = el('span', 't', clock(l.time));
       t.title = when(l.time).toLocaleString();
-      const ic = icon(block ? 'i-ban' : 'i-shield-check', 'ev-ic');
-      if (!block) ic.style.color = '#12a05b';
-      const msg = el('span', 'msg', (block ? 'Blocked ' : 'Allowed ') + String(l.protocol).toUpperCase() + ' from ' + l.src + ' to ' + target(l));
-      li.append(t, ic, msg, el('span', 'tag ' + (block ? 'tag-red' : 'tag-blue'), shortName(ruleName(l))));
+      const ic = icon(l.block ? 'i-ban' : l.kind === 'fw' ? 'i-shield-check' : 'i-alert', 'ev-ic');
+      if (!l.block) ic.style.color = l.kind === 'fw' ? '#12a05b' : '#f59f00';
+      const tag = el('span', 'tag ' + tagClass(l), tagText(l));
+      tag.title = l.name;
+      li.append(t, ic, el('span', 'msg', message(l)), tag);
       ev.append(li);
     });
   }
 
   function renderLogPanels() {
+    buildEvents();
     const threats = renderThreats();
     renderTopBlocked(threats);
     renderEvents();
@@ -685,11 +744,11 @@
 
   function renderBell() {
     const items = [];
-    state.logs.filter(isBlock).slice(0, 6).forEach((l) => {
+    state.events.filter((l) => l.threat).slice(0, 6).forEach((l) => {
       items.push({
         t: l.time,
-        text: 'Blocked ' + String(l.protocol).toUpperCase() + ' from ' + l.src,
-        sub: ruleName(l) + ' · ' + clock(l.time)
+        text: message(l),
+        sub: (l.kind === 'fw' ? l.name : tagText(l)) + ' · ' + clock(l.time)
       });
     });
     state.feeds.filter((f) => f.last_error).forEach((f) => {
@@ -782,13 +841,15 @@
     if (busySlow) return;
     busySlow = true;
     try {
-      const [conns, counters, logs, rules, feeds, net] = await Promise.all([
+      const [conns, counters, logs, rules, feeds, net, idsEv, avEv] = await Promise.all([
         safe(api('/api/monitor/connections?limit=' + LOG_LIMIT)),
         safe(api('/api/monitor/rule-counters')),
         safe(api('/api/monitor/logs?limit=' + LOG_LIMIT)),
         safe(api('/api/rules')),
         safe(api('/api/threatfeeds')),
-        state.netcfg ? Promise.resolve(state.netcfg) : safe(api('/api/network'))
+        state.netcfg ? Promise.resolve(state.netcfg) : safe(api('/api/network')),
+        safe(api('/api/ids/events?limit=' + EVENT_LIMIT)),
+        safe(api('/api/av/events?limit=' + EVENT_LIMIT))
       ]);
 
       if (net) state.netcfg = net;
@@ -819,6 +880,8 @@
       }
 
       if (logs) state.logs = asList(logs);
+      if (idsEv) state.ids = asList(idsEv);
+      if (avEv) state.av = asList(avEv);
 
       renderLogPanels();
       pushSpark('threats', state.threatCount || 0);
@@ -882,7 +945,7 @@
     $('stTotal').parentElement.title = 'Connections currently tracked by the firewall';
     $('stAllowed').parentElement.title = 'Packets accepted by firewall rules since the last commit';
     $('stBlocked').parentElement.title = 'Packets dropped or rejected by firewall rules since the last commit';
-    $('stThreats').parentElement.title = 'Logged packets that hit a drop or reject rule in the chosen time range';
+    $('stThreats').parentElement.title = 'Firewall drops, IDS alerts and antivirus detections in the chosen time range';
     ['stTotalTrend', 'stAllowedTrend', 'stBlockedTrend', 'stThreatsTrend'].forEach((id) => {
       $(id).title = 'Change since this page was opened (last few minutes)';
     });
@@ -892,6 +955,16 @@
       clearTimeout(rz);
       rz = setTimeout(drawAll, 120);
     });
+  }
+
+  /* ---------------- product version ---------------- */
+
+  async function loadVersion() {
+    try {
+      const res = await fetch('/health');
+      const h = await res.json();
+      if (h && h.version) $('appVersion').textContent = 'v' + h.version;
+    } catch (_) {}
   }
 
   /* ---------------- logged-in user ---------------- */
@@ -948,6 +1021,7 @@
   initChrome();
   initBell();
   loadUser();
+  loadVersion();
   initChartHover();
   drawAll();
   loop();

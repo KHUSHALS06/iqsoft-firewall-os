@@ -13,7 +13,7 @@
   if (!frame) return;
 
   const state = {
-    ifaces: [], net: null,
+    ifaces: [], net: null, live: [], ifcfg: [],
     dhcp: null, reservations: [], leases: [],
     dns: null, records: [],
     routes: [], objects: [], groups: []
@@ -179,6 +179,8 @@
       try {
         const r = await busy(apply, () => api(base + '/commit', { method: 'POST' }));
         toast((r && r.message) || 'Applied.', 'ok', 9000);
+        if (r && r.confirm_seconds) showConfirm(r.confirm_seconds);
+        if (base === '/api/interfaces') loadPorts().catch(() => {});
       } catch (e) { toast(apiMessage(e), 'bad'); }
     });
 
@@ -188,6 +190,7 @@
       try {
         const r = await busy(undo, () => api(base + '/rollback', { method: 'POST' }));
         toast((r && r.message) || 'Rolled back.', 'ok', 9000);
+        hideConfirm();
         await reloadAll();
       } catch (e) { toast(apiMessage(e), 'bad'); }
     });
@@ -271,6 +274,207 @@
       if (wan === lan) return { error: 'WAN and LAN must be different interfaces.', field: 'lan_interface' };
       return { payload: { wan_interface: wan, lan_interface: lan, nat_enabled: kit.c.nat_enabled.checked, ip_forward_enabled: kit.c.ip_forward_enabled.checked } };
     }, '/api/network', 'Saved. It is used the next time you apply the firewall rules.');
+  }
+
+  /* ---------------- port settings (IP address, gateway, DNS, MTU) ---------------- */
+
+  let confirmTimer = null;
+
+  function hideConfirm() {
+    if (confirmTimer) { clearInterval(confirmTimer); confirmTimer = null; }
+    clear($('ifConfirm'));
+  }
+
+  /* After a change to the port you are connected through, the device undoes it unless you confirm. */
+  function showConfirm(seconds) {
+    hideConfirm();
+    let left = Math.max(0, Math.round(seconds));
+    const text = h('span');
+    const keep = h('button', { class: 'btn primary sm', type: 'button' }, icon('i-check'), 'Keep these settings');
+    const undo = h('button', { class: 'btn danger sm', type: 'button' }, icon('i-undo'), 'Undo now');
+    const paint = () => {
+      text.textContent = ' If you can read this, the new settings work. They will be undone automatically in ' + left + ' seconds unless you keep them.';
+    };
+
+    keep.addEventListener('click', () => busy(keep, async () => {
+      try {
+        await api('/api/interfaces/confirm', { method: 'POST' });
+        toast('Port settings kept.', 'ok');
+        hideConfirm();
+      } catch (e) { toast(apiMessage(e), 'bad'); }
+    }));
+
+    undo.addEventListener('click', () => busy(undo, async () => {
+      try {
+        const r = await api('/api/interfaces/rollback', { method: 'POST' });
+        toast((r && r.message) || 'Rolled back.', 'ok', 9000);
+        hideConfirm();
+        await reloadAll();
+      } catch (e) { toast(apiMessage(e), 'bad'); }
+    }));
+
+    paint();
+    clear($('ifConfirm')).append(h('div', { class: 'notice' }, icon('i-alert'),
+      h('div', null, h('b', { text: 'Confirm the new port settings.' }), text,
+        h('div', { class: 'btn-row' }, keep, undo))));
+
+    confirmTimer = setInterval(() => {
+      left -= 1;
+      if (left <= 0) {
+        hideConfirm();
+        toast('Time is up. The previous port settings are being restored.', 'bad', 9000);
+        setTimeout(() => reloadAll().catch(() => {}), 4000);
+        return;
+      }
+      paint();
+    }, 1000);
+  }
+
+  /* Picks up a waiting confirmation, for example after logging in again on the new address. */
+  async function loadPending() {
+    try {
+      const st = await api('/api/interfaces/status');
+      if (st && st.pending && !confirmTimer) showConfirm(st.seconds_left || 0);
+      if (st && !st.pending && confirmTimer) hideConfirm();
+    } catch (_) {}
+  }
+
+  function portRows() {
+    const saved = {};
+    state.ifcfg.forEach((c) => { saved[c.name] = c; });
+    const liveBy = {};
+    state.live.forEach((p) => { liveBy[p.name] = p; });
+
+    // The monitor list also knows ports when the live list could not be read.
+    state.ifaces.forEach((i) => {
+      if (i.name !== 'lo' && !liveBy[i.name]) liveBy[i.name] = { name: i.name, state: i.state, addresses: [], mac: null, mtu: null };
+    });
+
+    const names = new Set(Object.keys(liveBy).concat(Object.keys(saved)));
+    const wan = state.net && state.net.wan_interface, lan = state.net && state.net.lan_interface;
+    const rank = (n) => (n === wan ? 0 : n === lan ? 1 : 2);
+
+    return Array.from(names)
+      .sort((a, b) => rank(a) - rank(b) || a.localeCompare(b))
+      .map((name) => ({ name, live: liveBy[name] || null, saved: saved[name] || null, role: name === wan ? 'WAN' : name === lan ? 'LAN' : null }));
+  }
+
+  function savedSummary(c) {
+    if (c.mode === 'dhcp') return 'Address from DHCP' + (c.dns.length ? ' · DNS ' + c.dns.join(', ') : '');
+    const parts = [c.addresses.length ? c.addresses.join(', ') : 'No address'];
+    if (c.gateway) parts.push('gw ' + c.gateway);
+    if (c.dns.length) parts.push('DNS ' + c.dns.join(', '));
+    if (c.mtu) parts.push('MTU ' + c.mtu);
+    return parts.join(' · ');
+  }
+
+  function renderPorts() {
+    const body = clear($('portBody'));
+    const rows = portRows();
+    if (!rows.length) return emptyRow(body, 5, 'No ports found.');
+
+    rows.forEach((r) => {
+      const st = r.live ? String(r.live.state || 'unknown').toLowerCase() : 'missing';
+      const first = h('td', null, h('b', { text: r.name }), r.role ? ' ' : null, r.role ? badge(r.role, 'plain') : null);
+      if (r.live && r.live.mac) first.append(h('span', { class: 'sub mono', text: r.live.mac }));
+
+      const current = h('td', { class: 'mono' });
+      const addrs = r.live ? r.live.addresses || [] : [];
+      if (addrs.length) addrs.forEach((a) => current.append(h('div', { text: a })));
+      else current.textContent = '–';
+
+      const saved = h('td');
+      if (r.saved) {
+        saved.append(badge(r.saved.mode === 'dhcp' ? 'DHCP' : 'Static', 'ok'));
+        if (!r.saved.enabled) saved.append(' ', badge('Disabled', 'bad'));
+        saved.append(h('span', { class: 'sub mono', text: savedSummary(r.saved) }));
+      } else {
+        saved.append(h('span', { class: 'sub', text: 'Not managed by the firewall' }));
+      }
+      if (!r.live) saved.append(h('span', { class: 'sub', text: 'This port is not on this system.' }));
+
+      const acts = h('td', { class: 'actions' });
+      if (r.live) acts.append(h('button', { class: 'btn sm', type: 'button', onClick: () => openPort(r) }, icon('i-edit'), 'Configure'));
+      if (r.saved) acts.append(h('button', { class: 'btn sm danger', type: 'button', onClick: () => resetPort(r) }, icon('i-trash'), 'Reset'));
+
+      body.append(h('tr', { class: r.saved && !r.saved.enabled ? 'is-off' : '' },
+        first,
+        h('td', null, badge(st, st === 'up' ? 'ok' : st === 'down' || st === 'missing' ? 'bad' : 'plain')),
+        current, saved, acts));
+    });
+  }
+
+  async function loadPorts() {
+    const [live, cfg] = await Promise.allSettled([api('/api/interfaces/live'), api('/api/interfaces')]);
+    if (live.status === 'fulfilled') state.live = list(live.value);
+    if (cfg.status === 'fulfilled') state.ifcfg = list(cfg.value);
+    renderPorts();
+    if (cfg.status === 'rejected') throw cfg.reason;
+  }
+
+  async function resetPort(r) {
+    const ok = await confirmBox('Remove the saved settings of port "' + r.name + '"? The port keeps its current address until the next reboot, after that the system decides.',
+      { ok: 'Remove', danger: true, title: 'Reset port settings' });
+    if (!ok) return;
+    try {
+      await api('/api/interfaces/' + encodeURIComponent(r.name), { method: 'DELETE' });
+      toast('Saved settings removed. Press Apply to update the system.', 'ok');
+      await loadPorts();
+    } catch (e) { toast(apiMessage(e), 'bad'); }
+  }
+
+  function openPort(r) {
+    const live = r.live || {};
+    const base = r.saved || {
+      name: r.name, mode: 'static', addresses: live.addresses || [], gateway: null, dns: [],
+      mtu: live.mtu || null, enabled: true, comment: null
+    };
+    const kit = formKit();
+
+    const modeFld = kit.fld('Address mode', kit.select('mode', [['static', 'Static (fixed address)'], ['dhcp', 'DHCP (get address from the network)']], base.mode),
+      'Use static for LAN ports and for a WAN with a fixed address.', 'span-all');
+    const addrFld = kit.fld('IP address(es)', kit.input('addresses', { type: 'text', class: 'in mono', placeholder: '192.168.1.1/24', value: (base.addresses || []).join(', ') }),
+      'Address with prefix length. Separate several with commas.', 'span-all');
+    const gwFld = kit.fld('Gateway', kit.input('gateway', { type: 'text', class: 'in mono', placeholder: '192.168.1.254', value: base.gateway }),
+      'Only for the port that leads to the internet.');
+    const dnsFld = kit.fld('DNS servers', kit.input('dns', { type: 'text', class: 'in mono', placeholder: '1.1.1.1, 8.8.8.8', value: (base.dns || []).join(', ') }),
+      'Up to three, separated by commas.');
+    const mtuFld = kit.fld('MTU', kit.input('mtu', { type: 'number', min: 576, max: 9216, step: 1, placeholder: '1500', value: base.mtu }), 'Leave empty for the default.');
+
+    const grid = h('div', { class: 'form-grid cols-2' },
+      modeFld, addrFld, gwFld, dnsFld, mtuFld,
+      kit.fld('Comment', kit.input('comment', { type: 'text', maxlength: 200, placeholder: 'Optional note', value: base.comment })),
+      kit.toggle('enabled', 'Port enabled', 'A disabled port is kept down.', base.enabled));
+
+    const syncMode = () => {
+      const on = kit.c.mode.value === 'static';
+      addrFld.style.display = on ? '' : 'none';
+      gwFld.style.display = on ? '' : 'none';
+    };
+    kit.c.mode.addEventListener('change', syncMode);
+    syncMode();
+
+    openForm({
+      title: 'Port settings: ' + r.name, grid, kit, editing: true, wide: true,
+      url: '/api/interfaces/' + encodeURIComponent(r.name),
+      collect() {
+        const c = kit.c;
+        const mode = c.mode.value;
+        const addresses = mode === 'static' ? splitList(c.addresses.value) : [];
+        if (mode === 'static' && !addresses.length) return { error: 'Enter at least one IP address, for example 192.168.1.1/24, or choose DHCP.', field: 'addresses' };
+        const mtuText = c.mtu.value.trim();
+        const mtu = mtuText === '' ? null : Number(mtuText);
+        if (mtu !== null && (!Number.isInteger(mtu) || mtu < 576 || mtu > 9216)) return { error: 'MTU must be a whole number from 576 to 9216.', field: 'mtu' };
+        return { payload: {
+          name: r.name, mode, addresses,
+          gateway: mode === 'static' ? kit.text('gateway') : null,
+          dns: splitList(c.dns.value), mtu,
+          enabled: c.enabled.checked, comment: kit.text('comment')
+        } };
+      },
+      done: 'Saved. Press Apply on this tab to put it into effect.',
+      reload: loadPorts
+    });
   }
 
   /* ---------------- DHCP ---------------- */
@@ -589,6 +793,7 @@
 
   /* ---------------- wiring ---------------- */
 
+  $('ifApply').append(applyBar('/api/interfaces', 'port settings'));
   $('dhcpApply').append(applyBar('/api/dhcp', 'DHCP settings'));
   $('dnsApply').append(applyBar('/api/dns', 'DNS settings'));
   $('routeApply').append(applyBar('/api/routes', 'routes'));
@@ -602,6 +807,7 @@
   async function reloadAll() {
     const fail = (e) => toast(apiMessage(e), 'bad');
     await Promise.allSettled([loadIfaces().catch(fail), loadNet().catch(fail)]);
+    await Promise.allSettled([loadPorts().catch(fail), loadPending()]);
     await Promise.allSettled([
       loadDhcpConfig().catch(fail), loadReservations().catch(fail), loadLeases().catch(fail),
       loadDnsConfig().catch(fail), loadRecords().catch(fail),
@@ -614,5 +820,7 @@
 
   reloadAll();
   every(loadIfaces, 5000);
+  every(() => loadPorts().catch(() => {}), 10000);
+  every(loadPending, 5000);
   every(loadLeases, 15000);
 })();

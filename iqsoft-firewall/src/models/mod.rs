@@ -5,6 +5,7 @@ pub mod dns;
 pub mod firewall_rule;
 pub mod geoip;
 pub mod network_config;
+pub mod interface_config;
 pub mod one_to_one_nat;
 pub mod port_forward;
 pub mod wireguard;
