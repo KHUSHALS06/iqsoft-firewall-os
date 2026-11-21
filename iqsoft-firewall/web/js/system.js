@@ -7,7 +7,7 @@
   const frame = Shell.mount({
     active: 'system',
     title: 'System',
-    subtitle: 'Version, account, backup and restore, power',
+    subtitle: 'Version, account, host name and time, backup and restore, power',
     content: $('page')
   });
   if (!frame) return;
@@ -189,6 +189,66 @@
     box.append(form);
   }
 
+  async function buildSettings() {
+    const box = clear($('settingsForm'));
+    let s;
+    try {
+      s = await api('/api/system/settings');
+    } catch (e) {
+      box.append(h('div', { class: 'notice warn', text: e && e.status === 403 ? 'Only administrators can change these settings.' : apiMessage(e) }));
+      return;
+    }
+
+    const host = h('input', { class: 'in', type: 'text', name: 'hostname', value: s.hostname || '', spellcheck: 'false', autocomplete: 'off' });
+    const zone = h('select', { class: 'in', name: 'timezone' },
+      (s.timezones || []).map((z) => h('option', { value: z, text: z, selected: z === s.timezone })));
+    const ntp = h('input', { type: 'checkbox', name: 'ntp_enabled', checked: s.ntp_enabled });
+
+    const fld = (label, control, help) => h('label', { class: 'fld' }, h('span', { text: label }), control, help ? h('small', { text: help }) : null);
+    const syncText = s.ntp_enabled ? (s.ntp_synchronized ? 'Clock is synchronised.' : 'Waiting for the first synchronisation.') : 'Clock is not synchronised.';
+
+    const errorBox = h('div', { class: 'form-error', role: 'alert' });
+    const save = h('button', { class: 'btn primary', type: 'submit' }, 'Save');
+
+    const form = h('form', { novalidate: true },
+      h('div', { class: 'form-grid cols-2' },
+        fld('Host name', host, 'Lowercase letters, digits and hyphens.'),
+        fld('Timezone', h('span', { class: 'select-wrap' }, zone)),
+        h('div', { class: 'fld span-all' },
+          h('div', { class: 'switch-row' },
+            h('label', { class: 'switch' }, ntp, h('span', { class: 'slider' })),
+            h('div', { class: 'switch-text' }, h('b', { text: 'Set the clock automatically (NTP)' }), h('span', { text: syncText }))))),
+      errorBox,
+      h('div', { class: 'btn-row end' }, save));
+
+    form.addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      host.classList.remove('invalid');
+      errorBox.textContent = '';
+
+      const name = host.value.trim();
+      if (!/^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$/.test(name)) {
+        host.classList.add('invalid');
+        host.focus();
+        errorBox.textContent = 'Host name must be lowercase letters, digits and hyphens, up to 63 characters, not starting or ending with a hyphen.';
+        return;
+      }
+
+      try {
+        const r = await busy(save, () => api('/api/system/settings', {
+          method: 'PUT',
+          body: { hostname: name, timezone: zone.value, ntp_enabled: ntp.checked }
+        }));
+        toast((r && r.message) || 'Settings saved.', 'ok');
+        await loadInfo();
+      } catch (e) {
+        errorBox.textContent = apiMessage(e);
+      }
+    });
+
+    box.append(form);
+  }
+
   function renderRestoreNotice() {
     const box = clear($('restoreNotice'));
     if (!state.info || !state.info.restore_pending) return;
@@ -340,6 +400,7 @@
   }
 
   buildPasswordForm();
+  buildSettings();
   buildBackupActions();
   buildRestoreForm();
   buildPower();

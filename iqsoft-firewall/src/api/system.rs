@@ -10,6 +10,7 @@ use axum::{
     response::{IntoResponse, Response},
     Extension, Json,
 };
+use serde::Deserialize;
 use serde_json::{json, Value};
 use sqlx::{sqlite::SqliteConnectOptions, ConnectOptions, Connection, Row};
 use std::{
@@ -356,4 +357,175 @@ pub async fn shutdown(
     Extension(user): Extension<User>,
 ) -> Response {
     power(state, addr, user, ACTION_SHUTDOWN, "poweroff", "Shutting down in a moment.").await
+}
+
+const ACTION_SETTINGS: &str = "system.settings";
+
+#[derive(Deserialize)]
+pub struct SettingsUpdate {
+    hostname: String,
+    timezone: String,
+    ntp_enabled: bool,
+}
+
+fn run_tool(program: &str, args: &[&str]) -> Result<String, String> {
+    let candidates = [
+        format!("/usr/bin/{}", program),
+        format!("/bin/{}", program),
+        program.to_string(),
+    ];
+    for path in candidates.iter() {
+        match Command::new(path).args(args).output() {
+            Ok(out) if out.status.success() => {
+                return Ok(String::from_utf8_lossy(&out.stdout).into_owned())
+            }
+            Ok(out) => return Err(String::from_utf8_lossy(&out.stderr).trim().to_string()),
+            Err(_) => continue,
+        }
+    }
+    Err(format!("{} is not available on this system", program))
+}
+
+fn valid_hostname(name: &str) -> bool {
+    !name.is_empty()
+        && name.len() <= 63
+        && !name.starts_with('-')
+        && !name.ends_with('-')
+        && name
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+}
+
+fn list_timezones() -> Vec<String> {
+    run_tool("timedatectl", &["list-timezones"])
+        .map(|text| {
+            text.lines()
+                .map(|l| l.trim().to_string())
+                .filter(|l| !l.is_empty())
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn read_settings() -> Result<Value, String> {
+    let show = run_tool(
+        "timedatectl",
+        &["show", "-p", "Timezone", "-p", "NTP", "-p", "NTPSynchronized"],
+    )?;
+
+    let mut timezone = String::new();
+    let mut ntp_enabled = false;
+    let mut ntp_synchronized = false;
+
+    for line in show.lines() {
+        if let Some((key, value)) = line.split_once('=') {
+            match key {
+                "Timezone" => timezone = value.trim().to_string(),
+                "NTP" => ntp_enabled = value.trim() == "yes",
+                "NTPSynchronized" => ntp_synchronized = value.trim() == "yes",
+                _ => {}
+            }
+        }
+    }
+
+    Ok(json!({
+        "hostname": read_trimmed("/proc/sys/kernel/hostname"),
+        "timezone": timezone,
+        "ntp_enabled": ntp_enabled,
+        "ntp_synchronized": ntp_synchronized,
+        "timezones": list_timezones()
+    }))
+}
+
+fn apply_settings(req: &SettingsUpdate) -> Result<(), String> {
+    if !list_timezones().iter().any(|z| z == &req.timezone) {
+        return Err("Unknown timezone".to_string());
+    }
+
+    let current_host = read_trimmed("/proc/sys/kernel/hostname").unwrap_or_default();
+
+    run_tool("timedatectl", &["set-timezone", &req.timezone])?;
+    run_tool(
+        "timedatectl",
+        &["set-ntp", if req.ntp_enabled { "true" } else { "false" }],
+    )?;
+    if req.hostname != current_host {
+        run_tool("hostnamectl", &["set-hostname", &req.hostname])?;
+    }
+    Ok(())
+}
+
+pub async fn get_settings(Extension(user): Extension<User>) -> Response {
+    if let Err(denied) = require_admin(&user) {
+        return denied.into_response();
+    }
+
+    match tokio::task::spawn_blocking(read_settings).await {
+        Ok(Ok(value)) => (StatusCode::OK, Json(value)).into_response(),
+        Ok(Err(message)) => fail(StatusCode::INTERNAL_SERVER_ERROR, &message).into_response(),
+        Err(e) => {
+            eprintln!("system: settings read task failed: {}", e);
+            fail(StatusCode::INTERNAL_SERVER_ERROR, "Internal error").into_response()
+        }
+    }
+}
+
+pub async fn update_settings(
+    State(state): State<AppState>,
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
+    Extension(user): Extension<User>,
+    Json(req): Json<SettingsUpdate>,
+) -> Response {
+    if let Err(denied) = require_admin(&user) {
+        return denied.into_response();
+    }
+
+    if !valid_hostname(&req.hostname) {
+        return fail(
+            StatusCode::BAD_REQUEST,
+            "Host name must be 1-63 characters: lowercase letters, digits and hyphens, not starting or ending with a hyphen",
+        )
+        .into_response();
+    }
+
+    let detail = format!(
+        "host={} timezone={} ntp={}",
+        req.hostname, req.timezone, req.ntp_enabled
+    );
+
+    let result = tokio::task::spawn_blocking(move || apply_settings(&req)).await;
+
+    match result {
+        Ok(Ok(())) => {
+            AuditService::record(
+                &state.db,
+                AuditEvent::new(ACTION_SETTINGS)
+                    .user(&user)
+                    .source_ip(addr.ip())
+                    .detail(&detail),
+            )
+            .await;
+            (
+                StatusCode::OK,
+                Json(json!({ "status": "ok", "message": "Settings saved." })),
+            )
+                .into_response()
+        }
+        Ok(Err(message)) => {
+            AuditService::record(
+                &state.db,
+                AuditEvent::new(ACTION_SETTINGS)
+                    .user(&user)
+                    .source_ip(addr.ip())
+                    .detail(&message)
+                    .failed(),
+            )
+            .await;
+            fail(StatusCode::BAD_REQUEST, &message).into_response()
+        }
+        Err(e) => {
+            eprintln!("system: settings task failed: {}", e);
+            fail(StatusCode::INTERNAL_SERVER_ERROR, "Internal error").into_response()
+        }
+    }
 }

@@ -88,6 +88,10 @@ fn build_router(state: AppState) -> Router {
         .route("/api/system/reboot", post(system_api::reboot))
         .route("/api/system/shutdown", post(system_api::shutdown))
         .route(
+            "/api/system/settings",
+            get(system_api::get_settings).put(system_api::update_settings),
+        )
+        .route(
             "/api/geoip/policies",
             get(geoip_api::list_policies)
                 .post(geoip_api::add_policy),

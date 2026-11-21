@@ -19,6 +19,7 @@
   <div class="tabs" id="tabBar" role="tablist">
     <button class="tab" type="button" data-tab="about" role="tab">About</button>
     <button class="tab" type="button" data-tab="account" role="tab">Account</button>
+    <button class="tab" type="button" data-tab="settings" role="tab">Settings</button>
     <button class="tab" type="button" data-tab="backup" role="tab">Backup &amp; Restore</button>
     <button class="tab" type="button" data-tab="power" role="tab">Power</button>
   </div>
@@ -39,6 +40,14 @@
       <div class="card-h"><h3><svg class="ic h-ic" aria-hidden="true"><use href="#i-key"/></svg>Change password</h3></div>
       <p class="card-sub" id="accountSub">Choose a new password for your account. You will be signed out afterwards.</p>
       <div id="pwForm"></div>
+    </div>
+  </section>
+
+  <section class="tab-panel" data-panel="settings" hidden>
+    <div class="card">
+      <div class="card-h"><h3><svg class="ic h-ic" aria-hidden="true"><use href="#i-gear"/></svg>Host name and time</h3></div>
+      <p class="card-sub">Changes apply immediately. Your sign-in session and the firewall rules are not affected.</p>
+      <div id="settingsForm"></div>
     </div>
   </section>
 
