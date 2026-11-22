@@ -17,7 +17,12 @@ impl DnsGenerator {
     ) -> Result<String, String> {
         let mut out = String::new();
 
+        // dnsmasq refuses a single-value option such as "port" when it appears in more
+        // than one of the files it loads, so this file is the only place that sets it.
+        // Disabled means "port=0" (DHCP can still run); enabled means no port line,
+        // which leaves DNS on its default port.
         if !config.enabled {
+            out.push_str("port=0\n");
             return Ok(out);
         }
 

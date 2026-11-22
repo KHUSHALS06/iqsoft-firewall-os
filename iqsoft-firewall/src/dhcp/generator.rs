@@ -13,7 +13,8 @@ impl DhcpGenerator {
     ) -> Result<String, String> {
         let mut out = String::new();
 
-        out.push_str("port=0\n");
+        // The DNS file (dns.conf) is the only place that sets "port", because dnsmasq
+        // refuses a single-value option that appears in more than one file.
         out.push_str("bind-interfaces\n");
 
         if !config.enabled {

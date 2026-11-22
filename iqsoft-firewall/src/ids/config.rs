@@ -244,7 +244,23 @@ pub fn render(
     out.push_str("          request-body-minimal-inspect-size: 32kb\n");
     out.push_str("          request-body-inspect-window: 4kb\n");
     out.push_str("          response-body-minimal-inspect-size: 40kb\n");
-    out.push_str("          response-body-inspect-window: 16kb\n\n");
+    out.push_str("          response-body-inspect-window: 16kb\n");
+    out.push_str("    modbus:\n");
+    out.push_str("      enabled: yes\n");
+    out.push_str("      detection-ports:\n");
+    out.push_str("        dp: 502\n");
+    out.push_str("      stream-depth: 0\n");
+    out.push_str("    dnp3:\n");
+    out.push_str("      enabled: yes\n");
+    out.push_str("      detection-ports:\n");
+    out.push_str("        dp: 20000\n");
+    out.push_str("    enip:\n");
+    out.push_str("      enabled: yes\n");
+    out.push_str("      detection-ports:\n");
+    out.push_str("        dp: 44818\n");
+    out.push_str("        sp: 44818\n");
+    out.push_str("    pgsql:\n");
+    out.push_str("      enabled: yes\n\n");
 
     out.push_str("detect:\n");
     out.push_str("  profile: medium\n");

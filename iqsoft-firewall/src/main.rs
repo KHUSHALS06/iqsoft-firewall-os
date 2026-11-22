@@ -109,6 +109,10 @@ fn build_router(state: AppState) -> Router {
             get(geoip_api::list_datasets),
         )
         .route(
+            "/api/geoip/locate",
+            post(geoip_api::locate),
+        )
+        .route(
             "/api/geoip/datasets/{country}",
             put(geoip_api::import_dataset)
                 .layer(DefaultBodyLimit::max(MAX_IMPORT_BYTES))

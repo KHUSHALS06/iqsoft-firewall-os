@@ -32,6 +32,17 @@
     finally { list.forEach((b) => { b.disabled = false; b.classList.remove('busy'); }); }
   }
 
+  /* Saving also applies the filter to dnsmasq. If that step failed the data
+     is still saved, so tell the user it is not live yet. */
+  function checkApplied(r) {
+    if (r && r.applied === false) {
+      toast('Saved, but not applied to the DNS server: ' + (r.apply_error || 'unknown error') +
+        ' Check the DNS server page.', 'bad');
+      return false;
+    }
+    return true;
+  }
+
   function badge(text, kind) {
     return h('span', { class: 'badge' + (kind ? ' ' + kind : ''), text });
   }
@@ -59,7 +70,7 @@
     ev.preventDefault();
     setError('settingsError', '');
     try {
-      await lock([$('btnSave')], () => api('/api/dnsfilter/settings', {
+      const res = await lock([$('btnSave')], () => api('/api/dnsfilter/settings', {
         method: 'PUT',
         body: {
           enabled: $('sEnabled').checked,
@@ -68,7 +79,7 @@
           enforce_dns: $('sEnforce').checked
         }
       }));
-      toast('DNS filter settings saved.', 'ok');
+      if (checkApplied(res)) toast('DNS filter settings saved and applied.', 'ok');
       await loadSettings();
     } catch (e) {
       setError('settingsError', errorText(e));
@@ -112,11 +123,11 @@
   async function setCategoryEnabled(c, box) {
     box.disabled = true;
     try {
-      await api('/api/dnsfilter/categories/' + encodeURIComponent(c.name), {
+      const res = await api('/api/dnsfilter/categories/' + encodeURIComponent(c.name), {
         method: 'PUT',
         body: { name: c.name, enabled: box.checked, comment: c.comment || null }
       });
-      toast('Category "' + c.name + '" ' + (box.checked ? 'turned on.' : 'turned off.'), 'ok');
+      if (checkApplied(res)) toast('Category "' + c.name + '" ' + (box.checked ? 'turned on.' : 'turned off.'), 'ok');
       await loadCategories();
     } catch (e) {
       box.checked = !box.checked;
@@ -131,8 +142,8 @@
       { ok: 'Delete', danger: true, title: 'Delete category' });
     if (!ok) return;
     try {
-      await api('/api/dnsfilter/categories/' + encodeURIComponent(c.name), { method: 'DELETE' });
-      toast('Category deleted.', 'ok');
+      const res = await api('/api/dnsfilter/categories/' + encodeURIComponent(c.name), { method: 'DELETE' });
+      if (checkApplied(res)) toast('Category deleted.', 'ok');
       await loadCategories();
     } catch (e) {
       toast(errorText(e), 'bad');
@@ -146,13 +157,13 @@
     if (!name) { setError('catError', 'Enter a name for the category.'); return; }
 
     try {
-      await lock([$('btnAddCat')], () => api('/api/dnsfilter/categories', {
+      const res = await lock([$('btnAddCat')], () => api('/api/dnsfilter/categories', {
         method: 'POST',
         body: { name, enabled: true, comment: $('cComment').value.trim() || null }
       }));
       $('cName').value = '';
       $('cComment').value = '';
-      toast('Category added.', 'ok');
+      if (checkApplied(res)) toast('Category added.', 'ok');
       await loadCategories();
     } catch (e) {
       setError('catError', errorText(e));
@@ -194,7 +205,7 @@
       $('impState').textContent = num(r.imported) + ' domains imported, ' + num(r.skipped) + ' skipped.';
       $('iData').value = '';
       $('iFile').value = '';
-      toast('Imported ' + num(r.imported) + ' domains into "' + r.category + '".', 'ok');
+      if (checkApplied(r)) toast('Imported ' + num(r.imported) + ' domains into "' + r.category + '" and applied.', 'ok');
       await loadCategories();
     } catch (e) {
       setError('impError', errorText(e));
@@ -230,10 +241,11 @@
 
   async function flipRule(r, action) {
     try {
-      await api('/api/dnsfilter/rules/' + encodeURIComponent(r.id), {
+      const res = await api('/api/dnsfilter/rules/' + encodeURIComponent(r.id), {
         method: 'PUT',
         body: { domain: r.domain, action, comment: r.comment || null }
       });
+      if (checkApplied(res)) toast('Rule updated.', 'ok');
       await loadRules();
     } catch (e) {
       toast(errorText(e), 'bad');
@@ -244,8 +256,8 @@
     const ok = await confirmBox('Remove the rule for ' + r.domain + '?', { ok: 'Remove', danger: true, title: 'Remove rule' });
     if (!ok) return;
     try {
-      await api('/api/dnsfilter/rules/' + encodeURIComponent(r.id), { method: 'DELETE' });
-      toast('Rule removed.', 'ok');
+      const res = await api('/api/dnsfilter/rules/' + encodeURIComponent(r.id), { method: 'DELETE' });
+      if (checkApplied(res)) toast('Rule removed.', 'ok');
       await loadRules();
     } catch (e) {
       toast(errorText(e), 'bad');
@@ -259,13 +271,13 @@
     if (!domain) { setError('ruleError', 'Enter a domain such as example.com.'); return; }
 
     try {
-      await lock([$('btnAddRule')], () => api('/api/dnsfilter/rules', {
+      const res = await lock([$('btnAddRule')], () => api('/api/dnsfilter/rules', {
         method: 'POST',
         body: { domain, action: $('rAction').value, comment: $('rComment').value.trim() || null }
       }));
       $('rDomain').value = '';
       $('rComment').value = '';
-      toast('Rule added.', 'ok');
+      if (checkApplied(res)) toast('Rule added.', 'ok');
       await loadRules();
     } catch (e) {
       setError('ruleError', errorText(e));
