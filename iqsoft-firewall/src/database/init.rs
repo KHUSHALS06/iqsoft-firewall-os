@@ -1,5 +1,32 @@
 use sqlx::{Row, SqlitePool};
 
+fn seed_port_names() -> (String, String) {
+    let mut wan = String::from("eth0");
+    let mut lan = String::from("eth1");
+
+    if let Ok(text) = std::fs::read_to_string("/etc/iqsoft/ports.conf") {
+        for line in text.lines() {
+            if let Some((key, value)) = line.split_once('=') {
+                let value = value.trim();
+                if value.is_empty() {
+                    continue;
+                }
+                match key.trim() {
+                    "wan" => wan = value.to_string(),
+                    "lan" => lan = value.to_string(),
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    if wan == lan {
+        wan = String::from("eth1");
+    }
+
+    (wan, lan)
+}
+
 pub async fn initialize_database(pool: &SqlitePool) -> Result<(), sqlx::Error> {
     // Check if firewall_rules exists
     let table_exists = sqlx::query(
@@ -219,16 +246,20 @@ pub async fn initialize_database(pool: &SqlitePool) -> Result<(), sqlx::Error> {
         .execute(pool)
         .await?;
 
+        let (seed_wan, seed_lan) = seed_port_names();
+
         sqlx::query(
             r#"
             INSERT INTO network_config (id, wan_interface, lan_interface, nat_enabled, ip_forward_enabled)
-            VALUES (1, 'eth0', 'eth1', 1, 1);
+            VALUES (1, ?, ?, 1, 1);
             "#,
         )
+        .bind(&seed_wan)
+        .bind(&seed_lan)
         .execute(pool)
         .await?;
 
-        println!("✓ Created network_config table (defaults: wan=eth0, lan=eth1 — update before commit)");
+        println!("✓ Created network_config table (wan={}, lan={} — update before commit if wrong)", seed_wan, seed_lan);
     }
 
     sqlx::query(
