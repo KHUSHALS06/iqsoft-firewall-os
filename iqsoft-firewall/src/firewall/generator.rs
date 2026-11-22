@@ -684,6 +684,15 @@ impl FirewallGenerator {
         output.push_str("        meta l4proto icmpv6 icmpv6 type { destination-unreachable, packet-too-big, time-exceeded, parameter-problem } accept\n");
         output.push_str("        meta l4proto icmpv6 icmpv6 type { nd-neighbor-solicit, nd-neighbor-advert, nd-router-advert } ip6 hoplimit 255 accept\n");
 
+        output.push_str("        ip saddr 192.168.1.0/24 tcp dport 22 accept # management API\n");
+        output.push_str("        ip saddr 192.168.1.0/24 ip protocol icmp icmp type echo-request limit rate 10/second accept # management API\n");
+        if let Some(port) = Self::management_port() {
+            output.push_str(&format!(
+                "        ip saddr 192.168.1.0/24 tcp dport {} accept # management API\n",
+                port
+            ));
+        }
+
         let lan = net_config.lan_interface.trim();
 
         if Self::is_safe_iface(lan) {
