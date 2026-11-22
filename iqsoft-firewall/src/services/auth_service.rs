@@ -89,7 +89,11 @@ impl AuthService {
             return Ok(());
         }
 
-        let password = Self::generate_password();
+        let preset = std::env::var("IQSOFT_DEFAULT_ADMIN_PASSWORD")
+            .ok()
+            .filter(|p| !p.is_empty());
+        let is_preset = preset.is_some();
+        let password = preset.unwrap_or_else(Self::generate_password);
         let hash = Self::hash_password_async(password.clone()).await?;
 
         AuthRepository::create_user(pool, "admin", &hash, "admin", Self::now()).await?;
@@ -98,7 +102,11 @@ impl AuthService {
         println!(" First boot: admin account created");
         println!("   username: admin");
         println!("   password: {}", password);
-        println!(" This password is shown only once. Change it after login.");
+        if is_preset {
+            println!(" This is the factory default password. Change it after login.");
+        } else {
+            println!(" This password is shown only once. Change it after login.");
+        }
         println!("==================================================");
 
         Ok(())
