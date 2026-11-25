@@ -434,6 +434,7 @@ mod tests {
             username: "admin".into(),
             password_hash: "not-a-real-hash".into(),
             role: "admin".into(),
+            permissions: vec![],
         })
     }
 

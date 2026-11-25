@@ -268,7 +268,7 @@
   function sectionFail(section, noticeId, subId, rowIds, e) {
     $(subId).textContent = 'This section could not be built.';
     rowIds.forEach((id) => clear($(id)));
-    const text = e && e.status === 403 ? 'Only administrators can read this section.' : apiMessage(e);
+    const text = e && e.status === 403 ? 'Your role does not allow reading this section.' : apiMessage(e);
     showNotice(noticeId, e && (e.status === 403 || e.status === 503) ? 'warn' : 'bad', text);
     return null;
   }

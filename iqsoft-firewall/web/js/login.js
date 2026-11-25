@@ -107,7 +107,12 @@
       if (res.ok && data.token) {
         Auth.set(data.token, data.expires_at);
         passInput.value = '';
-        location.replace('/html/dashboard.html');
+        let target = '/html/dashboard.html';
+        try {
+          await Access.refresh();
+          target = Access.landing() || target;
+        } catch (_) {}
+        location.replace(target);
         return;
       }
 
@@ -134,3 +139,4 @@
   });
 
 })();
+

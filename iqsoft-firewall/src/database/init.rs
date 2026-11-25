@@ -467,6 +467,7 @@ pub async fn initialize_database(pool: &SqlitePool) -> Result<(), sqlx::Error> {
     super::av_schema::create_av_tables(pool).await?;
     super::ids_schema::create_ids_tables(pool).await?;
     super::sdwan_schema::create_sdwan_tables(pool).await?;
+    super::access_schema::create_access_tables(pool).await?;
 
     Ok(())
 }

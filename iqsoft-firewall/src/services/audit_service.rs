@@ -22,6 +22,14 @@ pub mod actions {
     pub const ROLLBACK: &str = "firewall.rollback";
 
     pub const ACCESS_DENIED: &str = "auth.access_denied";
+
+    pub const USER_CREATE: &str = "user.create";
+    pub const USER_UPDATE: &str = "user.update";
+    pub const USER_DELETE: &str = "user.delete";
+
+    pub const ROLE_CREATE: &str = "role.create";
+    pub const ROLE_UPDATE: &str = "role.update";
+    pub const ROLE_DELETE: &str = "role.delete";
 }
 
 const MAX_ACTION: usize = 64;
@@ -193,6 +201,7 @@ mod tests {
             username: "admin".into(),
             password_hash: "not-a-real-hash".into(),
             role: "admin".into(),
+            permissions: vec![],
         }
     }
 

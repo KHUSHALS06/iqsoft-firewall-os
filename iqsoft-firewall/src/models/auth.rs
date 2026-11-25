@@ -6,6 +6,23 @@ pub struct User {
     pub username: String,
     pub password_hash: String,
     pub role: String,
+    /// What the user's role allows, e.g. `firewall.view`. Loaded fresh on every request,
+    /// so a change to a role applies to people who are already signed in.
+    pub permissions: Vec<String>,
+}
+
+impl User {
+    pub fn is_super_admin(&self) -> bool {
+        self.role == crate::services::permissions::ROLE_SUPER_ADMIN
+    }
+
+    pub fn can(&self, permission: &str) -> bool {
+        self.is_super_admin() || self.permissions.iter().any(|p| p == permission)
+    }
+
+    pub fn can_any(&self, list: &[String]) -> bool {
+        self.is_super_admin() || list.iter().any(|p| self.can(p))
+    }
 }
 
 #[derive(Debug, Deserialize)]

@@ -24,7 +24,8 @@
     { id: 'monitoring', label: 'Monitoring', icon: 'i-bars', href: '/html/monitoring.html', chev: 'right' },
     { id: 'logs', label: 'Logs', icon: 'i-file', href: '/html/logs.html' },
     { id: 'reports', label: 'Reports', icon: 'i-pie', href: '/html/reports.html' },	  
-    { id: 'system', label: 'System', icon: 'i-gear', href: '/html/system.html', chev: 'right' }
+    { id: 'system', label: 'System', icon: 'i-gear', href: '/html/system.html', chev: 'right' },
+    { id: 'users', label: 'Users', icon: 'i-users', href: '/html/users.html' }
   ];
 
   /* ---------------- icons ---------------- */
@@ -66,6 +67,7 @@
     '<symbol id="i-undo" viewBox="0 0 24 24"><path d="M9 14L4 9l5-5M4 9h10a6 6 0 0 1 0 12h-3"/></symbol>' +
     '<symbol id="i-play" viewBox="0 0 24 24"><path d="M7 4l13 8-13 8z"/></symbol>' +
     '<symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 16V4M6 10l6-6 6 6M4 20h16"/></symbol>' +
+    '<symbol id="i-users" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c0-3.6 2.9-6 6.5-6s6.5 2.4 6.5 6M16 4.8a3.5 3.5 0 0 1 0 6.4M18 14.4c2.2.7 3.5 2.5 3.5 5.6"/></symbol>' +
     '<symbol id="i-eye" viewBox="0 0 24 24"><path d="M1.5 12S5.5 5 12 5s10.5 7 10.5 7-4 7-10.5 7S1.5 12 1.5 12z"/><circle cx="12" cy="12" r="3"/></symbol>' +
     '</defs></svg>';
 
@@ -382,7 +384,7 @@
   function buildNav(active) {
     const nav = h('nav', { class: 'nav' });
 
-    NAV.forEach((item) => {
+    NAV.filter((item) => Access.canView(item.id)).forEach((item) => {
       const link = h('a', { class: 'nav-item' + (item.id === active ? ' active' : ''), href: item.href || '#' },
         icon(item.icon), h('span', { text: item.label }));
 
@@ -401,14 +403,34 @@
     return nav;
   }
 
-  async function loadUser() {
+  function showUser(me) {
+    document.querySelector('.user-text b').textContent = me.username;
+    document.querySelector('.user-text span').textContent = Access.roleLabel(me.role);
+    document.querySelector('.avatar').textContent = me.username.charAt(0).toUpperCase();
+  }
+
+  /* Takes the user to the first page the role may open, or signs out when there is none. */
+  function leavePage() {
+    const target = Access.landing();
+    if (target) {
+      location.replace(target);
+    } else {
+      Auth.clear();
+      location.replace('/html/login.html');
+    }
+  }
+
+  async function loadUser(active) {
     try {
-      const me = await api('/api/auth/me');
+      const me = await Access.refresh();
       if (!me || !me.username) return;
-      const role = String(me.role || '');
-      document.querySelector('.user-text b').textContent = me.username;
-      document.querySelector('.user-text span').textContent = role.charAt(0).toUpperCase() + role.slice(1);
-      document.querySelector('.avatar').textContent = me.username.charAt(0).toUpperCase();
+      showUser(me);
+
+      // The role may have changed since the menu was drawn.
+      const old = document.querySelector('.sidebar .nav');
+      if (old) old.replaceWith(buildNav(active));
+
+      if (!Access.canView(active)) leavePage();
     } catch (_) {}
   }
 
@@ -416,6 +438,13 @@
      `content` is an element that is moved under the page heading. */
   function mount(opts) {
     if (!Auth.guard()) return null;
+
+    // With a remembered role, a page the role may not open never starts. Without one
+    // (first load), loadUser below decides once the server has answered.
+    if (Access.me() && !Access.canView(opts.active)) {
+      leavePage();
+      return null;
+    }
 
     document.body.classList.add('dash-body');
     document.body.insertAdjacentHTML('afterbegin', WAVE + SPRITE);
@@ -494,13 +523,16 @@
     scrim.addEventListener('click', closeNav);
     document.addEventListener('keydown', (ev) => { if (ev.key === 'Escape') closeNav(); });
 
-    loadUser();
+    const known = Access.me();
+    if (known) showUser(known);
+    loadUser(opts.active);
 
     return { tools };
   }
 
   window.Shell = {
     mount, h, icon, clear, toast, openModal, confirmBox, busy, every, tabs, live,
+    can: (p) => Access.can(p), canAny: (l) => Access.canAny(l), roleLabel: (r) => Access.roleLabel(r),
     fmtTime, fmtClock, ago, num, ms, errorText
   };
 })()

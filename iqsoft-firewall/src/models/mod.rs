@@ -1,3 +1,4 @@
+pub mod role;
 pub mod address;
 pub mod auth;
 pub mod dhcp;

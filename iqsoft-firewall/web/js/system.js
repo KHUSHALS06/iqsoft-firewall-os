@@ -88,7 +88,7 @@
     const i = state.info;
 
     if (!i) {
-      body.append(h('tr', null, h('td', { class: 'empty-row', text: state.forbidden ? 'Only administrators can read system information.' : 'System information is not available.' })));
+      body.append(h('tr', null, h('td', { class: 'empty-row', text: state.forbidden ? 'Your role does not allow reading system information.' : 'System information is not available.' })));
       return;
     }
 
@@ -121,7 +121,7 @@
       state.info = null;
       if (e && e.status === 403) {
         state.forbidden = true;
-        showNotice($('pageNotice'), 'warn', 'Only administrators can use the system tools.');
+        showNotice($('pageNotice'), 'warn', 'Your role does not allow using the system tools.');
       } else {
         live(false, 'Connection lost');
         throw e;
@@ -195,7 +195,7 @@
     try {
       s = await api('/api/system/settings');
     } catch (e) {
-      box.append(h('div', { class: 'notice warn', text: e && e.status === 403 ? 'Only administrators can change these settings.' : apiMessage(e) }));
+      box.append(h('div', { class: 'notice warn', text: e && e.status === 403 ? 'Your role does not allow changing these settings.' : apiMessage(e) }));
       return;
     }
 

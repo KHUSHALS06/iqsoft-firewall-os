@@ -27,6 +27,7 @@ use axum_server::tls_rustls::RustlsConfig;
 use std::net::SocketAddr;
 
 use api::{
+    access as access_api,
     address as address_api,
     appcontrol as appcontrol_api,
     audit as audit_api,
@@ -49,6 +50,7 @@ use api::{
     sni as sni_api,
     system as system_api,
     threatfeed as threatfeed_api,
+    users as users_api,
     wireguard as wireguard_api,
 };
 use app_state::AppState;
@@ -79,6 +81,23 @@ fn build_router(state: AppState) -> Router {
             "/api/auth/change-password",
             post(auth_api::change_password),
         )
+        .route(
+            "/api/users",
+            get(users_api::list_users).post(users_api::create_user),
+        )
+        .route(
+            "/api/users/{id}",
+            put(users_api::update_user).delete(users_api::delete_user),
+        )
+        .route(
+            "/api/roles",
+            get(users_api::list_roles).post(users_api::create_role),
+        )
+        .route(
+            "/api/roles/{id}",
+            put(users_api::update_role).delete(users_api::delete_role),
+        )
+        .route("/api/permissions", get(users_api::catalog))
         .route("/api/audit", get(audit_api::list_audit))
         .route("/api/system/info", get(system_api::info))
         .route("/api/system/backup", get(system_api::backup))
@@ -549,6 +568,11 @@ fn build_router(state: AppState) -> Router {
             "/api/monitor/system",
             get(monitor_api::get_system),
         )
+        // Layers added later run first: sign-in is checked, then the role's permission.
+        .route_layer(middleware::from_fn_with_state(
+            state.clone(),
+            access_api::require_permission,
+        ))
         .route_layer(middleware::from_fn_with_state(
             state.clone(),
             auth_api::require_auth,

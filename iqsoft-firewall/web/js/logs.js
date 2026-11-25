@@ -242,7 +242,7 @@
       state.auditTotal = 0;
       renderAudit([]);
       if (e && e.status === 403) {
-        showNotice($('auditNotice'), 'warn', 'Only administrators can read the audit trail.');
+        showNotice($('auditNotice'), 'warn', 'Your role does not allow reading the audit trail.');
       } else {
         showNotice($('auditNotice'), 'bad', apiMessage(e));
         live(false, 'Connection lost');

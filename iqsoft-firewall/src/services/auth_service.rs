@@ -1,5 +1,6 @@
 use crate::{
     models::auth::{LoginResponse, User},
+    services::permissions::ROLE_SUPER_ADMIN,
     repository::auth_repository::AuthRepository,
 };
 use argon2::{
@@ -12,7 +13,7 @@ use sqlx::SqlitePool;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 const SESSION_TTL_SECONDS: i64 = 8 * 60 * 60;
-const MIN_PASSWORD_LEN: usize = 10;
+pub const MIN_PASSWORD_LEN: usize = 10;
 
 #[derive(Debug)]
 pub enum AuthError {
@@ -72,7 +73,7 @@ impl AuthService {
         }
     }
 
-    async fn hash_password_async(password: String) -> Result<String, AuthError> {
+    pub async fn hash_password_async(password: String) -> Result<String, AuthError> {
         tokio::task::spawn_blocking(move || Self::hash_password(&password))
             .await
             .map_err(|e| AuthError::Internal(e.to_string()))?
@@ -96,10 +97,10 @@ impl AuthService {
         let password = preset.unwrap_or_else(Self::generate_password);
         let hash = Self::hash_password_async(password.clone()).await?;
 
-        AuthRepository::create_user(pool, "admin", &hash, "admin", Self::now()).await?;
+        AuthRepository::create_user(pool, "admin", &hash, ROLE_SUPER_ADMIN, Self::now()).await?;
 
         println!("==================================================");
-        println!(" First boot: admin account created");
+        println!(" First boot: Super Admin account created");
         println!("   username: admin");
         println!("   password: {}", password);
         if is_preset {

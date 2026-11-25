@@ -1,3 +1,6 @@
+pub mod permissions;
+pub mod role_service;
+pub mod user_service;
 pub mod address_service;
 pub mod auth_service;
 pub mod dhcp_service;

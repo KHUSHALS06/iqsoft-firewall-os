@@ -407,3 +407,17 @@ html[data-theme="dark"] .form-error { color: #ff9aa6; background: rgba(229, 56, 
 @media (max-width: 560px) {
   .stats.three { grid-template-columns: 1fr; }
 }
+
+/* ---------- Users and roles ---------- */
+.perm-scroll { max-height: 52vh; overflow: auto; border: 1px solid var(--line, #dbe3ef); border-radius: 12px; }
+.perm-matrix { width: 100%; border-collapse: collapse; }
+.perm-matrix th, .perm-matrix td { padding: 8px 12px; text-align: center; white-space: nowrap; }
+.perm-matrix th:first-child, .perm-matrix td:first-child { text-align: left; }
+.perm-matrix thead th { position: sticky; top: 0; z-index: 1; background: var(--card, #fff); font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; }
+.perm-matrix tbody tr + tr td { border-top: 1px solid var(--line, #e6ecf5); }
+.perm-matrix input[type="checkbox"] { width: 17px; height: 17px; cursor: pointer; }
+.perm-matrix input[type="checkbox"]:disabled { cursor: not-allowed; opacity: 0.45; }
+.perm-matrix .na { color: var(--muted, #8a97ab); }
+.perm-tools { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin: 12px 0 8px; }
+.perm-count { margin-left: auto; }
+.tag-row { display: flex; gap: 6px; flex-wrap: wrap; }

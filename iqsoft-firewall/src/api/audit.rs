@@ -57,16 +57,16 @@ impl AuditParams {
 ///
 /// Read-only on purpose: there is no way to edit or delete audit events through the API.
 ///
-/// Until role-based access control exists, only the `admin` role may read the trail.
+/// Needs `logs.view` or `reports.view` (the Reports page draws from the same trail).
 pub async fn list_audit(
     State(state): State<AppState>,
     Extension(user): Extension<User>,
     Query(params): Query<AuditParams>,
 ) -> impl IntoResponse {
-    if user.role != "admin" {
+    if !user.can_any(&["logs.view".to_string(), "reports.view".to_string()]) {
         return (
             StatusCode::FORBIDDEN,
-            Json(json!({ "error": "Only administrators can read the audit trail" })),
+            Json(json!({ "error": "Your role does not allow reading the audit trail" })),
         );
     }
 
@@ -156,6 +156,8 @@ mod tests {
             username: "someone".into(),
             password_hash: "not-a-real-hash".into(),
             role: role.into(),
+            // Only the "admin" stand-in in these tests may read the trail.
+            permissions: if role == "admin" { vec!["logs.view".to_string()] } else { vec![] },
         })
     }
 
@@ -229,7 +231,7 @@ mod tests {
 
         let body = body_json(response).await;
         assert!(body.get("entries").is_none());
-        assert!(body["error"].as_str().unwrap().contains("administrators"));
+        assert!(body["error"].as_str().unwrap().contains("role"));
     }
 
     #[tokio::test]

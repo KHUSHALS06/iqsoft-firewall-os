@@ -256,6 +256,7 @@ mod tests {
             username: "admin".into(),
             password_hash: "not-a-real-hash".into(),
             role: "admin".into(),
+            permissions: vec![],
         }
     }
 
@@ -389,13 +390,16 @@ mod tests {
 }
 
 /// GET /api/auth/me
-/// Who is logged in. Only the name and role are returned, never the password hash.
+/// Who is logged in, and what the role allows (the pages use this to hide what is off limits;
+/// the server enforces it either way). Never the password hash.
 pub async fn me(Extension(user): Extension<User>) -> impl IntoResponse {
     (
         StatusCode::OK,
         Json(json!({
             "username": user.username,
-            "role": user.role
+            "role": user.role,
+            "is_super_admin": user.is_super_admin(),
+            "permissions": user.permissions
         })),
     )
 }

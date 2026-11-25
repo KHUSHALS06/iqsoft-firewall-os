@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'self'">
+<title>Users | IQSOFT Firewall OS</title>
+<link rel="stylesheet" href="/css/base.css">
+<link rel="stylesheet" href="/css/dashboard.css">
+<link rel="stylesheet" href="/css/pages.css">
+<link rel="stylesheet" href="/css/clean.css">
+</head>
+<body class="dash-body">
+
+<div id="page" hidden>
+
+  <div class="tabs" id="tabBar" role="tablist">
+    <button class="tab" type="button" data-tab="users" role="tab">Users <span id="tabCountUsers" class="count">0</span></button>
+    <button class="tab" type="button" data-tab="roles" role="tab">Roles <span id="tabCountRoles" class="count">0</span></button>
+  </div>
+
+  <!-- ============ USERS ============ -->
+  <section class="tab-panel" data-panel="users">
+    <div class="card">
+      <div class="card-h">
+        <h3><svg class="ic h-ic" aria-hidden="true"><use href="#i-users"/></svg>User accounts</h3>
+        <div class="btn-row" id="userTools"></div>
+      </div>
+      <p class="card-sub">Each person signs in with their own account. What they can see and change depends on the role you give them. A Super Admin can manage everything; an Admin can create users and roles within their own rights.</p>
+      <div id="userNotice"></div>
+      <div class="tbl-wrap">
+        <table class="dtable">
+          <thead>
+            <tr><th>User name</th><th>Role</th><th>Status</th><th>Created</th><th class="right">Actions</th></tr>
+          </thead>
+          <tbody id="userBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ ROLES ============ -->
+  <section class="tab-panel" data-panel="roles" hidden>
+    <div class="card">
+      <div class="card-h">
+        <h3><svg class="ic h-ic" aria-hidden="true"><use href="#i-key"/></svg>Roles</h3>
+        <div class="btn-row" id="roleTools"></div>
+      </div>
+      <p class="card-sub">A role is a set of ticks. For every feature you decide whether the role may <b>view</b> it, <b>create</b> new entries, <b>edit</b> existing ones or <b>delete</b> them. Changes apply to people who are already signed in.</p>
+      <div id="roleNotice"></div>
+      <div class="tbl-wrap">
+        <table class="dtable">
+          <thead>
+            <tr><th>Role</th><th>Description</th><th>Users</th><th>Permissions</th><th class="right">Actions</th></tr>
+          </thead>
+          <tbody id="roleBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+</div>
+
+<script src="/js/core/api.js"></script>
+<script src="/js/core/shell.js"></script>
+<script src="/js/users.js"></script>
+</body>
+</html>

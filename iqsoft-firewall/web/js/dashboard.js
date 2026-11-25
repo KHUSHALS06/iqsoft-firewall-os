@@ -1,6 +1,18 @@
 (function () {
   if (!Auth.guard()) return;
 
+  // A role without dashboard rights is sent to the first page it may open.
+  if (Access.me() && !Access.canView('dashboard')) {
+    const target = Access.landing();
+    if (target) {
+      location.replace(target);
+    } else {
+      Auth.clear();
+      location.replace('/html/login.html');
+    }
+    return;
+  }
+
   const $ = (id) => document.getElementById(id);
 
   const MAX_POINTS = 120;          // live traffic points kept (3 seconds each)
@@ -1443,15 +1455,27 @@
 
   /* ---------------- logged-in user ---------------- */
 
+  /* Hides the menu entries this role may not open. */
+  function filterMenu() {
+    document.querySelectorAll('.sidebar .nav-item').forEach((link) => {
+      const page = Access.PAGES.find((p) => p[2] === link.getAttribute('href'));
+      if (page && !Access.canView(page[0])) link.hidden = true;
+    });
+  }
+
   async function loadUser() {
     try {
-      const me = await api('/api/auth/me');
+      const me = await Access.refresh();
       if (!me || !me.username) return;
-      const role = String(me.role || '');
       document.querySelector('.user-text b').textContent = me.username;
-      document.querySelector('.user-text span').textContent =
-        role.charAt(0).toUpperCase() + role.slice(1);
+      document.querySelector('.user-text span').textContent = Access.roleLabel(me.role);
       document.querySelector('.avatar').textContent = me.username.charAt(0).toUpperCase();
+      filterMenu();
+
+      if (!Access.canView('dashboard')) {
+        const target = Access.landing();
+        if (target) location.replace(target);
+      }
     } catch (_) {}
   }
 
@@ -1492,6 +1516,7 @@
 
   initTheme();
   initControls();
+  filterMenu();
   initChrome();
   initBell();
   loadUser();

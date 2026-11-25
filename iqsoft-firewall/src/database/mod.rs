@@ -1,3 +1,4 @@
+pub mod access_schema;
 pub mod address_schema;
 pub mod av_schema;
 pub mod connection;

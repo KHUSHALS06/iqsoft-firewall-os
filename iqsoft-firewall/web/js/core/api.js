@@ -21,6 +21,7 @@ const Auth = {
     try {
       sessionStorage.removeItem(this.tokenKey);
       sessionStorage.removeItem(this.expiresKey);
+      sessionStorage.removeItem('iqsoft.me');
     } catch (_) {}
   },
 
@@ -98,3 +99,71 @@ async function logout() {
   Auth.clear();
   location.replace('/html/login.html');
 }
+
+/* Who is signed in and what their role allows. This only decides what the pages show:
+   the server checks every request again, so editing this in the browser gains nothing. */
+const Access = {
+  key: 'iqsoft.me',
+
+  /* [page id, feature it needs, address], in menu order. Keep in step with the menus. */
+  PAGES: [
+    ['dashboard', 'dashboard', '/html/dashboard.html'],
+    ['network', 'network', '/html/network.html'],
+    ['sdwan', 'sdwan', '/html/sdwan.html'],
+    ['firewall', 'firewall', '/html/firewall.html'],
+    ['nat', 'nat', '/html/nat.html'],
+    ['threat', 'threat', '/html/threat.html'],
+    ['ids', 'ids', '/html/ids.html'],
+    ['geoip', 'geoip', '/html/geoip.html'],
+    ['antivirus', 'antivirus', '/html/antivirus.html'],
+    ['dnsfilter', 'dnsfilter', '/html/dnsfilter.html'],
+    ['sni', 'appcontrol', '/html/sni.html'],
+    ['vpn', 'vpn', '/html/vpn.html'],
+    ['monitoring', 'monitoring', '/html/monitoring.html'],
+    ['logs', 'logs', '/html/logs.html'],
+    ['reports', 'reports', '/html/reports.html'],
+    ['system', 'system', '/html/system.html'],
+    ['users', 'users', '/html/users.html']
+  ],
+
+  me() {
+    try { return JSON.parse(sessionStorage.getItem(this.key)); } catch (_) { return null; }
+  },
+
+  save(me) {
+    try { sessionStorage.setItem(this.key, JSON.stringify(me)); } catch (_) {}
+  },
+
+  async refresh() {
+    const me = await api('/api/auth/me');
+    this.save(me);
+    return me;
+  },
+
+  can(permission) {
+    const me = this.me();
+    return !!me && (me.is_super_admin === true || (me.permissions || []).includes(permission));
+  },
+
+  canAny(list) {
+    return list.some((p) => this.can(p));
+  },
+
+  /* The Users page holds two tabs, so either right opens it. */
+  canView(pageId) {
+    const page = this.PAGES.find((p) => p[0] === pageId);
+    if (!page) return true;
+    if (pageId === 'users') return this.canAny(['users.view', 'roles.view']);
+    return this.can(page[1] + '.view');
+  },
+
+  landing() {
+    const page = this.PAGES.find((p) => this.canView(p[0]));
+    return page ? page[2] : null;
+  },
+
+  /* "super_admin" -> "Super Admin" */
+  roleLabel(role) {
+    return String(role || '').replace(/[_-]+/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+  }
+};
