@@ -82,7 +82,8 @@
     closed: 'If the virus engine stops, web downloads are blocked until it is back.'
   };
 
-  const ENGINES = { clamav: 'Virus scan', hash: 'Known threat list', url: 'Website check' };
+  const ENGINES = { hash: 'Known threat list', url: 'Website check' };
+  const engineName = (e) => ENGINES[e] || 'Virus scan';
 
   const RESULTS = {
     blocked: ['Blocked', 'bad'],
@@ -126,7 +127,7 @@
   function renderEngine(st) {
     const on = st.enabled;
 
-    const engineOk = st.clamd_reachable && st.clamd_detects_test_file;
+    const engineOk = st.engine_reachable && st.engine_detects_test_file;
 
     kv($('engStatus'), [
       ['Protection', protection(st)],
@@ -190,7 +191,7 @@
       fail_mode: $('sFailMode').value,
       scan_archives: $('sArchives').checked,
       block_encrypted_archives: $('sEncrypted').checked,
-      clamd_socket: $('sSocket').value.trim(),
+      scanner_socket: $('sSocket').value.trim(),
       proxy_port: Number($('sPort').value)
     };
   }
@@ -203,7 +204,7 @@
     $('sFailMode').value = s.fail_mode;
     $('sArchives').checked = !!s.scan_archives;
     $('sEncrypted').checked = !!s.block_encrypted_archives;
-    $('sSocket').value = s.clamd_socket || '';
+    $('sSocket').value = s.scanner_socket || '';
     $('sPort').value = s.proxy_port;
   }
 
@@ -491,7 +492,7 @@
         e.host,
         h('span', { class: 'sub', text: e.file_name || e.url })),
       h('td', { class: 'nowrap', text: bytes(e.size_bytes) }),
-      h('td', { class: 'nowrap', text: ENGINES[e.engine] || e.engine }),
+      h('td', { class: 'nowrap', text: engineName(e.engine) }),
       h('td', { text: e.signature || '–' }),
       h('td', null, badge(result[0], result[1])));
   }

@@ -47,19 +47,19 @@ impl ClamAvClient {
     pub async fn ping(&self) -> Result<bool, String> {
         let mut stream = UnixStream::connect(&self.socket_path)
             .await
-            .map_err(|e| format!("ClamAV connection failed: {e}"))?;
+            .map_err(|e| format!("Virus scanner connection failed: {e}"))?;
 
         stream
             .write_all(b"zPING\0")
             .await
-            .map_err(|e| format!("ClamAV PING failed: {e}"))?;
+            .map_err(|e| format!("Virus scanner PING failed: {e}"))?;
 
         let response = Self::read_response(&mut stream).await?;
 
         if response.trim() == "PONG" {
             Ok(true)
         } else {
-            Err(format!("Unexpected ClamAV PING response: {response}"))
+            Err(format!("Unexpected virus scanner PING response: {response}"))
         }
     }
 
@@ -67,7 +67,7 @@ impl ClamAvClient {
     pub async fn begin_stream(&self) -> Result<ClamAvSession, String> {
         let mut stream = UnixStream::connect(&self.socket_path)
             .await
-            .map_err(|e| format!("ClamAV connection failed: {e}"))?;
+            .map_err(|e| format!("Virus scanner connection failed: {e}"))?;
 
         stream
             .write_all(b"zINSTREAM\0")
@@ -93,10 +93,10 @@ impl ClamAvClient {
             let count = stream
                 .read(&mut byte)
                 .await
-                .map_err(|e| format!("Failed to read ClamAV response: {e}"))?;
+                .map_err(|e| format!("Failed to read virus scanner response: {e}"))?;
 
             if count == 0 {
-                return Err("ClamAV closed the connection unexpectedly".into());
+                return Err("Virus scanner closed the connection unexpectedly".into());
             }
 
             if byte[0] == 0 {
@@ -106,11 +106,11 @@ impl ClamAvClient {
             response.push(byte[0]);
 
             if response.len() > MAX_RESPONSE_SIZE {
-                return Err("ClamAV response exceeded maximum size".into());
+                return Err("Virus scanner response exceeded maximum size".into());
             }
         }
 
-        String::from_utf8(response).map_err(|_| "Invalid UTF-8 response from ClamAV".into())
+        String::from_utf8(response).map_err(|_| "Invalid UTF-8 response from the virus scanner".into())
     }
 
     fn parse_verdict(response: &str) -> Result<ClamAvVerdict, String> {
@@ -130,7 +130,7 @@ impl ClamAvClient {
             return Ok(ClamAvVerdict::Infected(signature.to_string()));
         }
 
-        Err(format!("ClamAV scan error: {response}"))
+        Err(format!("Virus scanner scan error: {response}"))
     }
 }
 
@@ -163,7 +163,7 @@ impl ClamAvSession {
         self.stream
             .flush()
             .await
-            .map_err(|e| format!("Failed to flush ClamAV stream: {e}"))?;
+            .map_err(|e| format!("Failed to flush virus scanner stream: {e}"))?;
 
         let response = ClamAvClient::read_response(&mut self.stream).await?;
 
@@ -181,7 +181,7 @@ impl ClamAvSession {
         .await
         {
             Ok(Ok(message)) if !message.is_empty() => {
-                format!("ClamAV rejected the stream: {message}")
+                format!("Virus scanner rejected the stream: {message}")
             }
             _ => format!("{what}: {error}"),
         }

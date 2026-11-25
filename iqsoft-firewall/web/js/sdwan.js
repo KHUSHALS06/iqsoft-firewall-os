@@ -610,15 +610,15 @@
       const p = await api('/api/sdwan/generate');
 
       if (!p.enabled) {
-        $('pvNft').textContent = 'SD-WAN is switched off, so a commit would apply nothing.';
+        $('pvMarking').textContent = 'SD-WAN is switched off, so a commit would apply nothing.';
         $('pvRouting').textContent = 'SD-WAN is switched off, so a commit would apply nothing.';
         return;
       }
 
-      $('pvNft').textContent = p.nft && p.nft.trim() ? p.nft : '(nothing)';
+      $('pvMarking').textContent = p.marking && p.marking.trim() ? p.marking : '(nothing)';
       $('pvRouting').textContent = p.routing && p.routing.trim() ? p.routing : '(nothing)';
     } catch (e) {
-      $('pvNft').textContent = errorText(e);
+      $('pvMarking').textContent = errorText(e);
       $('pvRouting').textContent = '';
     }
   }
@@ -751,4 +751,3 @@
   loadRules().catch(() => {});
   every(refresh, POLL_MS);
 })();
-

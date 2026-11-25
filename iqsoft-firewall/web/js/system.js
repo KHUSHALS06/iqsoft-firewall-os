@@ -1,413 +1,304 @@
 (function () {
   'use strict';
 
-  const { h, icon, clear, toast, confirmBox, busy, every, tabs, live, errorText, fmtTime } = Shell;
+  const { h, icon, clear, toast, confirmBox, tabs, num, errorText } = Shell;
   const $ = (id) => document.getElementById(id);
 
   const frame = Shell.mount({
-    active: 'system',
-    title: 'System',
-    subtitle: 'Version, account, host name and time, backup and restore, power',
+    active: 'dnsfilter',
+    title: 'DNS Filter',
+    subtitle: 'Block unwanted domains at the DNS level',
     content: $('page')
   });
   if (!frame) return;
 
-  const MIN_PASSWORD = 10;
-
-  const state = { info: null, me: null, forbidden: false, uptime: null };
+  const state = { cats: [], rules: [] };
 
   const btnRefresh = h('button', { class: 'icon-square', type: 'button', 'aria-label': 'Refresh now', title: 'Refresh now' }, icon('i-refresh'));
   frame.tools.append(btnRefresh);
 
-  const has = (v) => v !== null && v !== undefined && v !== '';
+  /* ---------------- helpers ---------------- */
 
-  function apiMessage(e) {
-    if (e && e.data && typeof e.data === 'object') {
-      if (e.data.message) return e.data.message;
-      if (e.data.error) return e.data.error;
+  function setError(id, message) {
+    const box = $(id);
+    box.textContent = message || '';
+    box.hidden = !message;
+  }
+
+  async function lock(buttons, work) {
+    const list = buttons.filter(Boolean);
+    list.forEach((b) => { b.disabled = true; b.classList.add('busy'); });
+    try { return await work(); }
+    finally { list.forEach((b) => { b.disabled = false; b.classList.remove('busy'); }); }
+  }
+
+  /* Saving also applies the filter to the DNS service. If that step failed the data
+     is still saved, so tell the user it is not live yet. */
+  function checkApplied(r) {
+    if (r && r.applied === false) {
+      toast('Saved, but not applied to the DNS server: ' + (r.apply_error || 'unknown error') +
+        ' Check the DNS server page.', 'bad');
+      return false;
     }
-    return errorText(e);
+    return true;
   }
 
-  function showNotice(box, kind, text) {
-    clear(box);
-    if (text) box.append(h('div', { class: 'notice ' + kind }, text));
+  function badge(text, kind) {
+    return h('span', { class: 'badge' + (kind ? ' ' + kind : ''), text });
   }
 
-  function fmtBytes(n) {
-    let v = Number(n) || 0;
-    const u = ['B', 'KB', 'MB', 'GB', 'TB'];
-    let i = 0;
-    while (v >= 1024 && i < u.length - 1) { v /= 1024; i++; }
-    return (i === 0 ? v : v.toFixed(1)) + ' ' + u[i];
+  function updateStats() {
+    $('stCats').textContent = num(state.cats.length);
+    $('stDomains').textContent = num(state.cats.filter((c) => c.enabled).reduce((n, c) => n + (c.domain_count || 0), 0));
+    $('stRules').textContent = num(state.rules.length);
+    $('tabCountCats').textContent = String(state.cats.length);
+    $('tabCountRules').textContent = String(state.rules.length);
   }
 
-  function fmtUptime(sec) {
-    if (!has(sec)) return '–';
-    const d = Math.floor(sec / 86400);
-    const hr = Math.floor((sec % 86400) / 3600);
-    const m = Math.floor((sec % 3600) / 60);
-    if (d > 0) return d + 'd ' + hr + 'h ' + m + 'm';
-    if (hr > 0) return hr + 'h ' + m + 'm';
-    return m + 'm';
+  /* ---------------- settings ---------------- */
+
+  async function loadSettings() {
+    const s = await api('/api/dnsfilter/settings');
+    $('sEnabled').checked = !!s.enabled;
+    $('sBlock').value = s.block_response || 'nxdomain';
+    $('sSafe').checked = !!s.safe_search;
+    $('sEnforce').checked = !!s.enforce_dns;
+    $('settingsState').textContent = s.enabled ? 'Filtering is on.' : 'Filtering is off.';
   }
 
-  function stamp() {
-    const d = new Date();
-    const p = (n) => String(n).padStart(2, '0');
-    return d.getFullYear() + p(d.getMonth() + 1) + p(d.getDate()) + '-' + p(d.getHours()) + p(d.getMinutes()) + p(d.getSeconds());
-  }
-
-  async function authed(path, options) {
-    const opts = options || {};
-    const headers = Object.assign({}, opts.headers || {}, { Authorization: 'Bearer ' + (Auth.token() || '') });
-    const res = await fetch(path, { method: opts.method || 'GET', headers, body: opts.body });
-
-    if (res.status === 401) {
-      Auth.clear();
-      location.replace('/html/login.html');
-      throw new Error('Authentication required');
-    }
-
-    return res;
-  }
-
-  async function failure(res) {
-    let message = 'Request failed (' + res.status + ')';
+  async function saveSettings(ev) {
+    ev.preventDefault();
+    setError('settingsError', '');
     try {
-      const data = await res.json();
-      if (data && data.error) message = data.error;
-    } catch (_) {}
-    const err = new Error(message);
-    err.status = res.status;
-    return err;
+      const res = await lock([$('btnSave')], () => api('/api/dnsfilter/settings', {
+        method: 'PUT',
+        body: {
+          enabled: $('sEnabled').checked,
+          block_response: $('sBlock').value,
+          safe_search: $('sSafe').checked,
+          enforce_dns: $('sEnforce').checked
+        }
+      }));
+      if (checkApplied(res)) toast('DNS filter settings saved and applied.', 'ok');
+      await loadSettings();
+    } catch (e) {
+      setError('settingsError', errorText(e));
+    }
   }
 
-  function renderInfo() {
-    const body = clear($('infoBody'));
-    const i = state.info;
+  /* ---------------- categories ---------------- */
 
-    if (!i) {
-      body.append(h('tr', null, h('td', { class: 'empty-row', text: state.forbidden ? 'Your role does not allow reading system information.' : 'System information is not available.' })));
-      return;
+  async function loadCategories() {
+    state.cats = await api('/api/dnsfilter/categories');
+    updateStats();
+
+    const body = clear($('catBody'));
+    if (!state.cats.length) {
+      body.append(h('tr', null, h('td', { class: 'empty-row', colspan: 6, text: 'No categories yet. Add one above.' })));
     }
 
-    const rows = [
-      ['Product', i.product],
-      ['Version', i.version],
-      ['Host name', i.hostname],
-      ['Operating system', i.os],
-      ['Kernel', i.kernel],
-      ['Architecture', i.arch],
-      ['Uptime', fmtUptime(state.uptime)],
-      ['System time', has(i.server_time) ? fmtTime(i.server_time) : null],
-      ['Configuration database', has(i.database_bytes) ? fmtBytes(i.database_bytes) : null],
-      ['Signed in as', state.me ? state.me.username + ' (' + state.me.role + ')' : null]
-    ];
+    state.cats.forEach((c) => {
+      const toggle = h('input', { type: 'checkbox' });
+      toggle.checked = !!c.enabled;
+      toggle.addEventListener('change', () => setCategoryEnabled(c, toggle));
 
-    rows.forEach(([label, value]) => {
       body.append(h('tr', null,
-        h('td', null, h('b', { text: label })),
-        h('td', { class: 'mono', text: has(value) ? String(value) : '–' })));
+        h('td', null, h('b', { text: c.name }), c.comment ? h('div', { class: 'muted', text: c.comment }) : null),
+        h('td', null, h('label', { class: 'switch' }, toggle, h('span', { class: 'slider' }))),
+        h('td', { class: 'mono nowrap', text: num(c.domain_count || 0) }),
+        h('td', { class: 'wide', text: c.source || '–' }),
+        h('td', { class: 'nowrap', text: c.updated_at || '–' }),
+        h('td', { class: 'actions' },
+          h('button', { class: 'btn sm', type: 'button', onClick: () => { $('iCat').value = c.name; $('iData').focus(); } },
+            icon('i-upload'), 'Import'),
+          ' ',
+          h('button', { class: 'btn sm danger', type: 'button', onClick: () => deleteCategory(c) },
+            icon('i-trash'), 'Delete'))));
     });
+
+    const sel = clear($('iCat'));
+    state.cats.forEach((c) => sel.append(h('option', { value: c.name, text: c.name })));
   }
 
-  async function loadInfo() {
+  async function setCategoryEnabled(c, box) {
+    box.disabled = true;
     try {
-      state.info = await api('/api/system/info');
-      state.forbidden = false;
-      showNotice($('pageNotice'), 'warn', '');
+      const res = await api('/api/dnsfilter/categories/' + encodeURIComponent(c.name), {
+        method: 'PUT',
+        body: { name: c.name, enabled: box.checked, comment: c.comment || null }
+      });
+      if (checkApplied(res)) toast('Category "' + c.name + '" ' + (box.checked ? 'turned on.' : 'turned off.'), 'ok');
+      await loadCategories();
     } catch (e) {
-      state.info = null;
-      if (e && e.status === 403) {
-        state.forbidden = true;
-        showNotice($('pageNotice'), 'warn', 'Your role does not allow using the system tools.');
-      } else {
-        live(false, 'Connection lost');
-        throw e;
-      }
+      box.checked = !box.checked;
+      toast(errorText(e), 'bad');
+    } finally {
+      box.disabled = false;
     }
-
-    try {
-      const sys = await api('/api/monitor/system');
-      state.uptime = sys ? sys.uptime_seconds : null;
-    } catch (_) {}
-
-    try {
-      state.me = await api('/api/auth/me');
-    } catch (_) {}
-
-    live(true, 'Live');
-    renderInfo();
-    renderRestoreNotice();
   }
 
-  function buildPasswordForm() {
-    const box = clear($('pwForm'));
-
-    const mk = (name, autocomplete) => h('input', { class: 'in', type: 'password', name, autocomplete, spellcheck: 'false' });
-    const current = mk('current_password', 'current-password');
-    const next = mk('new_password', 'new-password');
-    const confirm = mk('confirm_password', 'new-password');
-
-    const fld = (label, control, help) => h('label', { class: 'fld' }, h('span', { text: label }), control, help ? h('small', { text: help }) : null);
-
-    const errorBox = h('div', { class: 'form-error', role: 'alert' });
-    const save = h('button', { class: 'btn primary', type: 'submit' }, 'Change password');
-
-    const form = h('form', { novalidate: true },
-      h('div', { class: 'form-grid cols-2' },
-        fld('Current password', current),
-        h('span'),
-        fld('New password', next, 'At least ' + MIN_PASSWORD + ' characters.'),
-        fld('Repeat new password', confirm)),
-      errorBox,
-      h('div', { class: 'btn-row end' }, save));
-
-    form.addEventListener('submit', async (ev) => {
-      ev.preventDefault();
-      [current, next, confirm].forEach((el) => el.classList.remove('invalid'));
-      errorBox.textContent = '';
-
-      if (!current.value) { current.classList.add('invalid'); current.focus(); errorBox.textContent = 'Enter your current password.'; return; }
-      if (next.value.length < MIN_PASSWORD) { next.classList.add('invalid'); next.focus(); errorBox.textContent = 'The new password must be at least ' + MIN_PASSWORD + ' characters.'; return; }
-      if (next.value !== confirm.value) { confirm.classList.add('invalid'); confirm.focus(); errorBox.textContent = 'The two new passwords do not match.'; return; }
-      if (next.value === current.value) { next.classList.add('invalid'); next.focus(); errorBox.textContent = 'The new password must be different from the current one.'; return; }
-
-      try {
-        const r = await busy(save, () => api('/api/auth/change-password', {
-          method: 'POST',
-          body: { current_password: current.value, new_password: next.value }
-        }));
-        toast((r && r.message) || 'Password changed. Please sign in again.', 'ok', 6000);
-        setTimeout(() => logout(), 1800);
-      } catch (e) {
-        errorBox.textContent = apiMessage(e);
-      }
-    });
-
-    box.append(form);
-  }
-
-  async function buildSettings() {
-    const box = clear($('settingsForm'));
-    let s;
+  async function deleteCategory(c) {
+    const ok = await confirmBox('Delete the category "' + c.name + '" and its ' + num(c.domain_count || 0) + ' domains?',
+      { ok: 'Delete', danger: true, title: 'Delete category' });
+    if (!ok) return;
     try {
-      s = await api('/api/system/settings');
+      const res = await api('/api/dnsfilter/categories/' + encodeURIComponent(c.name), { method: 'DELETE' });
+      if (checkApplied(res)) toast('Category deleted.', 'ok');
+      await loadCategories();
     } catch (e) {
-      box.append(h('div', { class: 'notice warn', text: e && e.status === 403 ? 'Your role does not allow changing these settings.' : apiMessage(e) }));
-      return;
+      toast(errorText(e), 'bad');
     }
-
-    const host = h('input', { class: 'in', type: 'text', name: 'hostname', value: s.hostname || '', spellcheck: 'false', autocomplete: 'off' });
-    const zone = h('select', { class: 'in', name: 'timezone' },
-      (s.timezones || []).map((z) => h('option', { value: z, text: z, selected: z === s.timezone })));
-    const ntp = h('input', { type: 'checkbox', name: 'ntp_enabled', checked: s.ntp_enabled });
-
-    const fld = (label, control, help) => h('label', { class: 'fld' }, h('span', { text: label }), control, help ? h('small', { text: help }) : null);
-    const syncText = s.ntp_enabled ? (s.ntp_synchronized ? 'Clock is synchronised.' : 'Waiting for the first synchronisation.') : 'Clock is not synchronised.';
-
-    const errorBox = h('div', { class: 'form-error', role: 'alert' });
-    const save = h('button', { class: 'btn primary', type: 'submit' }, 'Save');
-
-    const form = h('form', { novalidate: true },
-      h('div', { class: 'form-grid cols-2' },
-        fld('Host name', host, 'Lowercase letters, digits and hyphens.'),
-        fld('Timezone', h('span', { class: 'select-wrap' }, zone)),
-        h('div', { class: 'fld span-all' },
-          h('div', { class: 'switch-row' },
-            h('label', { class: 'switch' }, ntp, h('span', { class: 'slider' })),
-            h('div', { class: 'switch-text' }, h('b', { text: 'Set the clock automatically (NTP)' }), h('span', { text: syncText }))))),
-      errorBox,
-      h('div', { class: 'btn-row end' }, save));
-
-    form.addEventListener('submit', async (ev) => {
-      ev.preventDefault();
-      host.classList.remove('invalid');
-      errorBox.textContent = '';
-
-      const name = host.value.trim();
-      if (!/^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$/.test(name)) {
-        host.classList.add('invalid');
-        host.focus();
-        errorBox.textContent = 'Host name must be lowercase letters, digits and hyphens, up to 63 characters, not starting or ending with a hyphen.';
-        return;
-      }
-
-      try {
-        const r = await busy(save, () => api('/api/system/settings', {
-          method: 'PUT',
-          body: { hostname: name, timezone: zone.value, ntp_enabled: ntp.checked }
-        }));
-        toast((r && r.message) || 'Settings saved.', 'ok');
-        await loadInfo();
-      } catch (e) {
-        errorBox.textContent = apiMessage(e);
-      }
-    });
-
-    box.append(form);
   }
 
-  function renderRestoreNotice() {
-    const box = clear($('restoreNotice'));
-    if (!state.info || !state.info.restore_pending) return;
+  async function addCategory(ev) {
+    ev.preventDefault();
+    setError('catError', '');
+    const name = $('cName').value.trim();
+    if (!name) { setError('catError', 'Enter a name for the category.'); return; }
 
-    const cancel = h('button', { class: 'btn sm', type: 'button' }, 'Cancel restore');
-    const reboot = h('button', { class: 'btn sm primary', type: 'button' }, 'Reboot now');
-
-    cancel.addEventListener('click', async () => {
-      try {
-        const r = await busy(cancel, () => api('/api/system/restore', { method: 'DELETE' }));
-        toast((r && r.message) || 'Pending restore cancelled.', 'ok');
-        await loadInfo();
-      } catch (e) {
-        toast(apiMessage(e), 'bad');
-      }
-    });
-
-    reboot.addEventListener('click', () => doReboot(reboot));
-
-    box.append(h('div', { class: 'notice warn' },
-      h('b', { text: 'A restore is waiting. ' }),
-      'The uploaded backup replaces the current configuration the next time the firewall service starts. ',
-      h('span', { class: 'btn-row' }, cancel, reboot)));
+    try {
+      const res = await lock([$('btnAddCat')], () => api('/api/dnsfilter/categories', {
+        method: 'POST',
+        body: { name, enabled: true, comment: $('cComment').value.trim() || null }
+      }));
+      $('cName').value = '';
+      $('cComment').value = '';
+      if (checkApplied(res)) toast('Category added.', 'ok');
+      await loadCategories();
+    } catch (e) {
+      setError('catError', errorText(e));
+    }
   }
 
-  function buildBackupActions() {
-    const btn = h('button', { class: 'btn primary', type: 'button' }, icon('i-file'), 'Download backup');
+  /* ---------------- import ---------------- */
 
-    btn.addEventListener('click', () => busy(btn, async () => {
-      try {
-        const res = await authed('/api/system/backup');
-        if (!res.ok) throw await failure(res);
+  $('iFile').addEventListener('change', () => {
+    const file = $('iFile').files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      $('iData').value = String(reader.result || '');
+      if (!$('iSource').value) $('iSource').value = file.name;
+    };
+    reader.onerror = () => setError('impError', 'Could not read that file.');
+    reader.readAsText(file);
+  });
 
-        const blob = await res.blob();
-        const url = URL.createObjectURL(blob);
-        const link = h('a', { href: url, download: 'iqsoft-firewall-backup-' + stamp() + '.db' });
-        document.body.append(link);
-        link.click();
-        link.remove();
-        setTimeout(() => URL.revokeObjectURL(url), 10000);
+  async function importList(ev) {
+    ev.preventDefault();
+    setError('impError', '');
+    const name = $('iCat').value;
+    const data = $('iData').value;
 
-        toast('Backup downloaded (' + fmtBytes(blob.size) + ').', 'ok');
-      } catch (e) {
-        toast(apiMessage(e), 'bad');
-      }
-    }));
+    if (!name) { setError('impError', 'Add a category first, then choose it here.'); return; }
+    if (!data.trim()) { setError('impError', 'Paste a list of domains or choose a file.'); return; }
 
-    clear($('backupActions')).append(btn);
-  }
-
-  function buildRestoreForm() {
-    const file = h('input', { class: 'in', type: 'file', accept: '.db,.sqlite,application/octet-stream', 'aria-label': 'Backup file' });
-    const errorBox = h('div', { class: 'form-error', role: 'alert' });
-    const upload = h('button', { class: 'btn danger', type: 'button' }, 'Check and stage restore');
-
-    upload.addEventListener('click', async () => {
-      errorBox.textContent = '';
-      const chosen = file.files && file.files[0];
-
-      if (!chosen) { errorBox.textContent = 'Choose a backup file first.'; return; }
-
-      const ok = await confirmBox(
-        'Stage "' + chosen.name + '" (' + fmtBytes(chosen.size) + ') as the new configuration? It takes effect when the firewall service next starts and replaces all current settings and user accounts.',
-        { ok: 'Stage restore', danger: true, title: 'Restore from backup' });
-      if (!ok) return;
-
-      try {
-        const r = await busy(upload, async () => {
-          const res = await authed('/api/system/restore', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/octet-stream' },
-            body: chosen
-          });
-          if (!res.ok) throw await failure(res);
-          return res.json();
-        });
-
-        file.value = '';
-        toast((r && r.message) || 'Backup staged.', 'ok', 9000);
-        await loadInfo();
-      } catch (e) {
-        errorBox.textContent = apiMessage(e);
-      }
-    });
-
-    clear($('restoreForm')).append(
-      h('div', { class: 'form-grid' }, h('label', { class: 'fld span-all' }, h('span', { text: 'Backup file' }), file)),
-      errorBox,
-      h('div', { class: 'btn-row end' }, upload));
-  }
-
-  async function waitForReturn() {
-    live(false, 'Rebooting…');
-    const started = Date.now();
-    let wentDown = false;
-
-    const timer = setInterval(async () => {
-      let up = false;
-      try {
-        const res = await fetch('/health', { cache: 'no-store' });
-        up = res.ok;
-      } catch (_) {}
-
-      if (!up) wentDown = true;
-
-      if (up && (wentDown || Date.now() - started > 90000)) {
-        clearInterval(timer);
-        toast('The firewall is back online.', 'ok');
-        setTimeout(() => location.reload(), 1200);
-      } else if (Date.now() - started > 600000) {
-        clearInterval(timer);
-        live(false, 'No response');
-      }
-    }, 3000);
-  }
-
-  async function doReboot(button) {
-    const ok = await confirmBox('Reboot this firewall now? Traffic through it will stop for a minute or two.', { ok: 'Reboot', danger: true, title: 'Reboot' });
+    const ok = await confirmBox('Replace the whole list of "' + name + '" with this one?',
+      { ok: 'Import', title: 'Import list' });
     if (!ok) return;
 
     try {
-      const r = await busy(button, () => api('/api/system/reboot', { method: 'POST' }));
-      toast((r && r.message) || 'Rebooting.', 'info', 8000);
-      waitForReturn();
+      const r = await lock([$('btnImport')], () => api('/api/dnsfilter/categories/' + encodeURIComponent(name) + '/domains', {
+        method: 'PUT',
+        body: { data, source: $('iSource').value.trim() || null }
+      }));
+      $('impState').textContent = num(r.imported) + ' domains imported, ' + num(r.skipped) + ' skipped.';
+      $('iData').value = '';
+      $('iFile').value = '';
+      if (checkApplied(r)) toast('Imported ' + num(r.imported) + ' domains into "' + r.category + '" and applied.', 'ok');
+      await loadCategories();
     } catch (e) {
-      toast(apiMessage(e), 'bad');
+      setError('impError', errorText(e));
     }
   }
 
-  function buildPower() {
-    const reboot = h('button', { class: 'btn danger', type: 'button' }, icon('i-refresh'), 'Reboot');
-    reboot.addEventListener('click', () => doReboot(reboot));
-    clear($('rebootActions')).append(reboot);
+  /* ---------------- custom rules ---------------- */
 
-    const off = h('button', { class: 'btn danger', type: 'button' }, icon('i-ban'), 'Shut down');
-    off.addEventListener('click', async () => {
-      const ok = await confirmBox('Shut this firewall down? It will not come back until someone powers it on again.', { ok: 'Shut down', danger: true, title: 'Shut down' });
-      if (!ok) return;
+  async function loadRules() {
+    state.rules = await api('/api/dnsfilter/rules');
+    updateStats();
 
-      try {
-        const r = await busy(off, () => api('/api/system/shutdown', { method: 'POST' }));
-        toast((r && r.message) || 'Shutting down.', 'info', 8000);
-        live(false, 'Shutting down…');
-      } catch (e) {
-        toast(apiMessage(e), 'bad');
-      }
+    const body = clear($('ruleBody'));
+    if (!state.rules.length) {
+      body.append(h('tr', null, h('td', { class: 'empty-row', colspan: 4, text: 'No custom rules.' })));
+      return;
+    }
+
+    state.rules.forEach((r) => {
+      const next = r.action === 'block' ? 'allow' : 'block';
+      body.append(h('tr', null,
+        h('td', { class: 'mono wide', text: r.domain }),
+        h('td', null, badge(r.action === 'block' ? 'Block' : 'Allow', r.action === 'block' ? 'bad' : 'ok')),
+        h('td', { class: 'wide', text: r.comment || '' }),
+        h('td', { class: 'actions' },
+          h('button', { class: 'btn sm', type: 'button', onClick: () => flipRule(r, next) },
+            icon('i-swap'), next === 'allow' ? 'Make Allow' : 'Make Block'),
+          ' ',
+          h('button', { class: 'btn sm danger', type: 'button', onClick: () => deleteRule(r) },
+            icon('i-trash'), 'Remove'))));
     });
-    clear($('shutdownActions')).append(off);
   }
 
-  buildPasswordForm();
-  buildSettings();
-  buildBackupActions();
-  buildRestoreForm();
-  buildPower();
+  async function flipRule(r, action) {
+    try {
+      const res = await api('/api/dnsfilter/rules/' + encodeURIComponent(r.id), {
+        method: 'PUT',
+        body: { domain: r.domain, action, comment: r.comment || null }
+      });
+      if (checkApplied(res)) toast('Rule updated.', 'ok');
+      await loadRules();
+    } catch (e) {
+      toast(errorText(e), 'bad');
+    }
+  }
 
-  tabs($('page'), 'system');
+  async function deleteRule(r) {
+    const ok = await confirmBox('Remove the rule for ' + r.domain + '?', { ok: 'Remove', danger: true, title: 'Remove rule' });
+    if (!ok) return;
+    try {
+      const res = await api('/api/dnsfilter/rules/' + encodeURIComponent(r.id), { method: 'DELETE' });
+      if (checkApplied(res)) toast('Rule removed.', 'ok');
+      await loadRules();
+    } catch (e) {
+      toast(errorText(e), 'bad');
+    }
+  }
 
-  btnRefresh.addEventListener('click', () => busy(btnRefresh, async () => { await loadInfo(); }));
+  async function addRule(ev) {
+    ev.preventDefault();
+    setError('ruleError', '');
+    const domain = $('rDomain').value.trim();
+    if (!domain) { setError('ruleError', 'Enter a domain such as example.com.'); return; }
 
-  every(loadInfo, 15000);
+    try {
+      const res = await lock([$('btnAddRule')], () => api('/api/dnsfilter/rules', {
+        method: 'POST',
+        body: { domain, action: $('rAction').value, comment: $('rComment').value.trim() || null }
+      }));
+      $('rDomain').value = '';
+      $('rComment').value = '';
+      if (checkApplied(res)) toast('Rule added.', 'ok');
+      await loadRules();
+    } catch (e) {
+      setError('ruleError', errorText(e));
+    }
+  }
+
+  /* ---------------- start ---------------- */
+
+  async function refresh() {
+    try {
+      await Promise.all([loadSettings(), loadCategories(), loadRules()]);
+    } catch (e) {
+      toast(errorText(e), 'bad');
+    }
+  }
+
+  tabs($('page'), 'dnsfilter');
+  $('settingsForm').addEventListener('submit', saveSettings);
+  $('catForm').addEventListener('submit', addCategory);
+  $('impForm').addEventListener('submit', importList);
+  $('ruleForm').addEventListener('submit', addRule);
+  btnRefresh.addEventListener('click', refresh);
+  refresh();
 })();

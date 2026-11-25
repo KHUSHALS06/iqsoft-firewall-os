@@ -55,7 +55,7 @@ impl WireguardService {
             || config.interface_name == network.lan_interface.trim()
         {
             return Err(format!(
-                "'{}' is already used as the WAN or LAN interface, choose another WireGuard interface name",
+                "'{}' is already used as the WAN or LAN interface, choose another VPN interface name",
                 config.interface_name
             ));
         }
@@ -130,7 +130,7 @@ impl WireguardService {
             .iter()
             .find(|p| p.id == Some(id))
             .cloned()
-            .ok_or_else(|| "WireGuard peer not found".to_string())?;
+            .ok_or_else(|| "VPN peer not found".to_string())?;
 
         let (peer, client_config) =
             Self::prepare_peer(&config, &existing, input, Some(&current)).await?;
@@ -155,14 +155,14 @@ impl WireguardService {
         Self::validate_interface_name(&config.interface_name)?;
 
         if !(1..=65535).contains(&config.listen_port) {
-            return Err("WireGuard listen port must be between 1 and 65535".into());
+            return Err("VPN listen port must be between 1 and 65535".into());
         }
 
         Self::parse_server_address(&config.address)?;
 
         if let Some(mtu) = config.mtu {
             if !(1280..=1500).contains(&mtu) {
-                return Err("WireGuard MTU must be between 1280 and 1500".into());
+                return Err("VPN MTU must be between 1280 and 1500".into());
             }
         }
 
@@ -187,10 +187,10 @@ impl WireguardService {
         }
 
         if !Self::is_valid_key(&config.private_key) {
-            return Err("WireGuard server private key is missing or invalid".into());
+            return Err("VPN server private key is missing or invalid".into());
         }
         if !Self::is_valid_key(&config.public_key) {
-            return Err("WireGuard server public key is missing or invalid".into());
+            return Err("VPN server public key is missing or invalid".into());
         }
 
         Ok(())
@@ -798,7 +798,7 @@ impl WireguardService {
 
     fn map_write_error(error: sqlx::Error) -> String {
         if matches!(error, sqlx::Error::RowNotFound) {
-            return "WireGuard peer not found".into();
+            return "VPN peer not found".into();
         }
 
         let message = error.to_string();

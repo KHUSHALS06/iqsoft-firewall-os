@@ -44,8 +44,8 @@
       <form id="polForm" novalidate>
         <div class="form-grid cols-3">
           <label class="fld"><span>Country code</span>
-            <input id="pCode" class="in mono" type="text" maxlength="2" placeholder="CN" autocomplete="off" spellcheck="false">
-            <small>Two letters, for example CN, RU or US.</small>
+            <span class="select-wrap"><select id="pCode" class="in"></select></span>
+            <small>Pick the country to block, for example CN - China.</small>
           </label>
           <label class="fld"><span>Direction</span>
             <span class="select-wrap"><select id="pDir" class="in">
@@ -82,7 +82,7 @@
       <form id="setForm" novalidate>
         <div class="form-grid cols-3">
           <label class="fld"><span>Country code</span>
-            <input id="dCode" class="in mono" type="text" maxlength="2" placeholder="CN" autocomplete="off" spellcheck="false">
+            <span class="select-wrap"><select id="dCode" class="in"></select></span>
           </label>
           <label class="fld"><span>Source (optional)</span>
             <input id="dSource" class="in" type="text" maxlength="200" placeholder="Where the list came from" autocomplete="off">
@@ -114,6 +114,7 @@
 
 <script src="/js/core/api.js"></script>
 <script src="/js/core/shell.js"></script>
+<script src="/js/core/countries.js"></script>
 <script src="/js/geoip.js"></script>
 </body>
 </html>

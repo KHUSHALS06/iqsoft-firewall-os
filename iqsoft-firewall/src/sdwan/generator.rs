@@ -439,10 +439,14 @@ fn quoted_list<'a>(names: impl Iterator<Item = &'a str>) -> String {
         .join(", ")
 }
 
-/// " via 192.168.1.1 dev enp3s0" (or just " dev ppp0" when the link has no gateway).
+/// " via 192.168.1.1 dev enp3s0 onlink" (or just " dev ppp0" when the link has no gateway).
+///
+/// `onlink` tells the kernel to accept the gateway even when the port has no address yet
+/// (cable pulled, DHCP lease gone). Without it one dead port makes `ip` refuse the whole
+/// batch ("Nexthop has invalid gateway"), and the healthy links lose their routing too.
 fn route_target(link: &SdwanLink) -> String {
     match &link.gateway {
-        Some(gateway) => format!(" via {} dev {}", gateway, link.interface_name),
+        Some(gateway) => format!(" via {} dev {} onlink", gateway, link.interface_name),
         None => format!(" dev {}", link.interface_name),
     }
 }
@@ -1183,11 +1187,11 @@ mod tests {
             lines,
             vec![
                 "rule add lookup main suppress_prefixlength 0 pref 10000",
-                "route replace default via 10.1.0.1 dev eth0 table 101 proto 251",
+                "route replace default via 10.1.0.1 dev eth0 onlink table 101 proto 251",
                 "rule add fwmark 0x10000/0xff0000 lookup 101 pref 10001",
-                "route replace default via 10.2.0.1 dev eth2 table 102 proto 251",
+                "route replace default via 10.2.0.1 dev eth2 onlink table 102 proto 251",
                 "rule add fwmark 0x20000/0xff0000 lookup 102 pref 10002",
-                "route replace default via 10.1.0.1 dev eth0 metric 50 proto 251",
+                "route replace default via 10.1.0.1 dev eth0 onlink metric 50 proto 251",
             ]
         );
     }
@@ -1213,7 +1217,7 @@ mod tests {
         assert!(text.contains("table 101"));
         assert!(text.contains("lookup 101 pref 10001"));
         // but the router's own traffic moves to the working link
-        assert!(text.contains("route replace default via 10.2.0.1 dev eth2 metric 50 proto 251"));
+        assert!(text.contains("route replace default via 10.2.0.1 dev eth2 onlink metric 50 proto 251"));
     }
 
     #[test]
@@ -1226,7 +1230,7 @@ mod tests {
 
         let text = SdwanGenerator::render_ip_apply(&input(links, vec![]));
 
-        assert!(text.contains("route replace default via 10.2.0.1 dev eth2 metric 50 proto 251"));
+        assert!(text.contains("route replace default via 10.2.0.1 dev eth2 onlink metric 50 proto 251"));
     }
 
     #[test]

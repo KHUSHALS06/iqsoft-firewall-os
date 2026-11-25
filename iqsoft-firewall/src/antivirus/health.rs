@@ -132,7 +132,9 @@ pub struct StatusSnapshot {
     pub healthy: bool,
     pub proxy_listening: bool,
     pub proxy_port: u16,
+    #[serde(rename = "engine_reachable")]
     pub clamd_reachable: bool,
+    #[serde(rename = "engine_detects_test_file")]
     pub clamd_detects_test_file: bool,
     pub last_check_unix: i64,
     pub redirect_active: bool,

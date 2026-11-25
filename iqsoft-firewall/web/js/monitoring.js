@@ -102,8 +102,8 @@
     $('stUptime').textContent = fmtUptime(s.uptime_seconds);
   }
 
-  async function loadConntrackUsage() {
-    const u = await api('/api/monitor/conntrack-usage');
+  async function loadConnectionUsage() {
+    const u = await api('/api/monitor/connection-usage');
     const box = clear($('ctBox'));
     if (!has(u.count) || !has(u.max) || !u.max) {
       box.append(h('p', { class: 'card-sub', text: 'Connection tracking numbers are not available on this system.' }));
@@ -153,7 +153,7 @@
   }
 
   async function loadOverview() {
-    const jobs = await Promise.allSettled([loadSystem(), loadConntrackUsage(), loadInterfaces()]);
+    const jobs = await Promise.allSettled([loadSystem(), loadConnectionUsage(), loadInterfaces()]);
     const failed = jobs.find((j) => j.status === 'rejected');
     if (failed) {
       live(false, 'Connection lost');
@@ -204,7 +204,7 @@
     if (!rows.length) return emptyRow(body, 8, connData.connections.length ? 'No connections match the filter.' : 'No tracked connections.');
 
     const anyBytes = connData.connections.some((c) => has(c.bytes_out));
-    showNotice($('connNotice'), 'warn', anyBytes ? '' : 'Byte counters are off. Enable them with: sysctl -w net.netfilter.nf_conntrack_acct=1');
+    showNotice($('connNotice'), 'warn', anyBytes ? '' : 'Byte counters are off. Contact support to turn them on.');
 
     rows.forEach((c) => {
       const nat = natText(c);

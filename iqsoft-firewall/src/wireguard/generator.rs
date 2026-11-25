@@ -39,13 +39,13 @@ impl WireguardGenerator {
             }
 
             if let Err(e) = WireguardService::validate_peer(peer, config) {
-                eprintln!("WARNING: skipping WireGuard peer '{}' — {}", peer.name, e);
+                eprintln!("WARNING: skipping VPN peer '{}' — {}", peer.name, e);
                 continue;
             }
 
             if seen_keys.contains(&peer.public_key) {
                 eprintln!(
-                    "WARNING: skipping WireGuard peer '{}' — public key already used by another peer",
+                    "WARNING: skipping VPN peer '{}' — public key already used by another peer",
                     peer.name
                 );
                 continue;
@@ -59,7 +59,7 @@ impl WireguardGenerator {
 
             if nets.len() != peer.allowed_ips.len() {
                 eprintln!(
-                    "WARNING: skipping WireGuard peer '{}' — unreadable allowed IP",
+                    "WARNING: skipping VPN peer '{}' — unreadable allowed IP",
                     peer.name
                 );
                 continue;
@@ -72,7 +72,7 @@ impl WireguardGenerator {
 
             if let Some((existing, owner)) = clash {
                 eprintln!(
-                    "WARNING: skipping WireGuard peer '{}' — allowed IPs overlap {} of peer '{}'",
+                    "WARNING: skipping VPN peer '{}' — allowed IPs overlap {} of peer '{}'",
                     peer.name, existing, owner
                 );
                 continue;

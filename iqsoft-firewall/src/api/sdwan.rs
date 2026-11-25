@@ -181,7 +181,7 @@ pub async fn generate(State(state): State<AppState>) -> impl IntoResponse {
             StatusCode::OK,
             Json(json!({
                 "enabled": input.enabled,
-                "nft": SdwanGenerator::render_table(&input),
+                "marking": SdwanGenerator::render_table(&input),
                 "routing": SdwanGenerator::render_ip_apply(&input),
             })),
         ),
@@ -490,7 +490,7 @@ mod tests {
 
         let body = body_json(generate(State(state.clone())).await.into_response()).await;
         assert_eq!(body["enabled"], false);
-        assert_eq!(body["nft"], "");
+        assert_eq!(body["marking"], "");
 
         set_settings(State(state.clone()), Json(SdwanSettings { enabled: true }))
             .await
@@ -498,7 +498,7 @@ mod tests {
 
         let body = body_json(generate(State(state)).await.into_response()).await;
         assert_eq!(body["enabled"], true);
-        assert!(body["nft"].as_str().unwrap().contains(TABLE_NAME));
+        assert!(body["marking"].as_str().unwrap().contains(TABLE_NAME));
         assert!(!body["routing"].as_str().unwrap().is_empty());
     }
 

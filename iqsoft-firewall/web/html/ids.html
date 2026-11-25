@@ -63,7 +63,7 @@
         <dl id="rulesInfo" class="kv"></dl>
         <div id="lastUpdateBox"></div>
         <div class="card-foot">
-          <span class="muted">Signatures are the attack patterns Suricata looks for.</span>
+          <span class="muted">Signatures are the attack patterns the security service looks for.</span>
           <button id="btnUpdateRules" class="btn primary" type="button"><svg class="ic" aria-hidden="true"><use href="#i-refresh"/></svg>Update rules now</button>
         </div>
       </div>
@@ -90,7 +90,7 @@
         <label class="switch"><input id="sEnabled" type="checkbox"><span class="slider"></span></label>
         <div class="switch-text">
           <b>Turn on intrusion detection</b>
-          <span>Starts Suricata and records attacks it recognises.</span>
+          <span>Starts the security service and records attacks it recognises.</span>
         </div>
       </div>
 
@@ -111,30 +111,30 @@
         <label class="fld" data-for="ids">
           <span>Interfaces to watch</span>
           <input id="sInterfaces" class="in mono" type="text" placeholder="eth0,eth1" autocomplete="off" spellcheck="false">
-          <small>Network interfaces Suricata listens on, separated by commas. At least one is needed in detect-only mode.</small>
+          <small>Network ports the security service listens on, separated by commas. At least one is needed in detect-only mode.</small>
         </label>
 
         <label class="fld" data-for="ips">
           <span>Queue number</span>
           <input id="sQueue" class="in" type="number" min="1" max="65535" step="1">
-          <small>Netfilter queue used in blocking mode (1 to 65535). Leave it unless it clashes with something else.</small>
+          <small>Queue number used in blocking mode (1 to 65535). Leave it unless it clashes with something else.</small>
         </label>
 
         <label class="fld" data-for="ips">
-          <span>If Suricata stops</span>
+          <span>If the security service stops</span>
           <span class="select-wrap">
             <select id="sFailMode" class="in">
               <option value="open">Let traffic through (safe)</option>
               <option value="closed">Block traffic (strict)</option>
             </select>
           </span>
-          <small>"Let traffic through" keeps the network working but uninspected. "Block traffic" stops forwarded traffic until Suricata is back.</small>
+          <small>"Let traffic through" keeps the network working but uninspected. "Block traffic" stops forwarded traffic until the service is back.</small>
         </label>
 
         <label class="fld span-all">
           <span>Home networks</span>
           <input id="sHomeNet" class="in mono" type="text" placeholder="[192.168.0.0/16,10.0.0.0/8,172.16.0.0/12]" autocomplete="off" spellcheck="false">
-          <small>Your own networks. Suricata uses this to tell inside from outside, which makes many signatures more accurate.</small>
+          <small>Your own networks. The security service uses this to tell inside from outside, which makes many signatures more accurate.</small>
         </label>
 
         <label class="fld">

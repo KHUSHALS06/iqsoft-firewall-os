@@ -138,6 +138,7 @@ pub async fn summary(State(state): State<AppState>) -> impl IntoResponse {
 struct IdsStatus {
     enabled: bool,
     mode: String,
+    #[serde(rename = "engine")]
     suricata: SuricataStatus,
     rules: RuleFileInfo,
     last_rule_update: Option<RuleUpdateStatus>,
@@ -429,9 +430,9 @@ mod tests {
         let body = body_json(response).await;
         assert_eq!(body["enabled"], false);
         assert_eq!(body["mode"], "ids");
-        assert!(body["suricata"].get("installed").is_some());
-        assert!(body["suricata"].get("running").is_some());
-        assert!(body["suricata"].get("ready").is_some());
+        assert!(body["engine"].get("installed").is_some());
+        assert!(body["engine"].get("running").is_some());
+        assert!(body["engine"].get("ready").is_some());
         assert!(body["rules"].get("rule_count").is_some());
         assert!(body.get("last_rule_update").is_some());
     }

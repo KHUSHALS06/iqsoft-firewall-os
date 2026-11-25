@@ -354,7 +354,7 @@ async fn apply_with_revert<B: Backend>(
             what, error
         ),
         Err(revert_error) => format!(
-            "{} failed ({}) and restoring the previous setup also failed ({}) - check the routing rules and nftables manually",
+            "{} failed ({}) and restoring the previous setup also failed ({}) - check the routing rules and firewall rules manually",
             what, error, revert_error
         ),
     })
@@ -1103,7 +1103,7 @@ mod tests {
             .unwrap_err();
 
         assert!(error.contains("restoring the previous setup also failed"), "{}", error);
-        assert!(error.contains("check the routing rules and nftables manually"), "{}", error);
+        assert!(error.contains("check the routing rules and firewall rules manually"), "{}", error);
     }
 
     #[tokio::test]

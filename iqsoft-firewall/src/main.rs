@@ -514,34 +514,34 @@ fn build_router(state: AppState) -> Router {
                 .delete(address_api::delete_group),
         )
         .route(
-            "/api/wireguard/config",
+            "/api/vpn/config",
             get(wireguard_api::get_config)
                 .put(wireguard_api::set_config),
         )
         .route(
-            "/api/wireguard/peers",
+            "/api/vpn/peers",
             get(wireguard_api::list_peers)
                 .post(wireguard_api::add_peer),
         )
         .route(
-            "/api/wireguard/peers/{id}",
+            "/api/vpn/peers/{id}",
             put(wireguard_api::update_peer)
                 .delete(wireguard_api::delete_peer),
         )
         .route(
-            "/api/wireguard/generate",
+            "/api/vpn/generate",
             get(wireguard_api::generate_config),
         )
         .route(
-            "/api/wireguard/status",
+            "/api/vpn/status",
             get(wireguard_api::status),
         )
         .route(
-            "/api/wireguard/commit",
+            "/api/vpn/commit",
             post(wireguard_api::commit),
         )
         .route(
-            "/api/wireguard/rollback",
+            "/api/vpn/rollback",
             post(wireguard_api::rollback),
         )
         .route(
@@ -553,7 +553,7 @@ fn build_router(state: AppState) -> Router {
             get(monitor_api::get_connections),
         )
         .route(
-            "/api/monitor/conntrack-usage",
+            "/api/monitor/connection-usage",
             get(monitor_api::get_conntrack_usage),
         )
         .route(

@@ -99,8 +99,8 @@ pub async fn update_and_reload(pool: &SqlitePool) -> Result<RuleUpdateStatus, St
     let mut status = rules::update_rules(pool, &files).await?;
 
     let note = match commit::reload_rules().await {
-        Ok(()) => "Suricata was told to load the new signatures.".to_string(),
-        Err(_) => "Suricata is not running; the new signatures load the next time it starts."
+        Ok(()) => "The intrusion detection service was told to load the new signatures.".to_string(),
+        Err(_) => "The intrusion detection service is not running; the new signatures load the next time it starts."
             .to_string(),
     };
 
@@ -185,7 +185,7 @@ pub async fn restore_on_boot(pool: &SqlitePool, lock: &Arc<Mutex<()>>) -> Result
 
     if commit::status().await.ready {
         generator::apply_live(pool, lock).await?;
-        return Ok("IDS/IPS: Suricata is already running, rules restored".to_string());
+        return Ok("IDS/IPS: service is already running, rules restored".to_string());
     }
 
     commit::apply(pool, lock).await

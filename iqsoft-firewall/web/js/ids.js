@@ -78,14 +78,14 @@
   }
 
   const MODE_HELP = {
-    ids: 'Suricata watches a copy of the traffic and records attacks. Nothing is blocked.',
-    ips: 'Forwarded traffic passes through Suricata, and traffic that matches a drop rule is blocked.'
+    ids: 'The security service watches a copy of the traffic and records attacks. Nothing is blocked.',
+    ips: 'Forwarded traffic passes through the security service, and traffic that matches a drop rule is blocked.'
   };
 
   /* ---------------- status (engine, signatures, notices) ---------------- */
 
   function engineBadge(st) {
-    const s = st.suricata;
+    const s = st.engine;
     if (!s.installed) return badge('Not installed', 'bad');
     if (s.ready) return badge('Running', 'ok');
     if (s.running) return badge('Starting', 'warn');
@@ -95,25 +95,25 @@
 
   function renderNotices(st) {
     const box = clear($('notice'));
-    const s = st.suricata;
+    const s = st.engine;
     const items = [];
 
     if (st.enabled && !s.installed) {
-      items.push(['bad', 'Suricata is not installed', 'Install it on the firewall with "apt install suricata", then press Apply.']);
+      items.push(['bad', 'Intrusion detection service is unavailable', 'It is not set up on this firewall. Contact support, then press Apply.']);
     } else if (st.enabled && !s.running) {
-      items.push(['warn', 'Suricata is not running', 'Intrusion detection is switched on but the engine is stopped. Press Apply to start it.']);
+      items.push(['warn', 'Intrusion detection service is not running', 'Intrusion detection is switched on but the engine is stopped. Press Apply to start it.']);
     } else if (st.enabled && s.running && !s.ready) {
-      items.push(['', 'Suricata is starting', 'It is loading its signatures. This can take a minute.']);
+      items.push(['', 'Intrusion detection service is starting', 'It is loading its signatures. This can take a minute.']);
     } else if (!st.enabled && s.running) {
-      items.push(['warn', 'Intrusion detection is switched off, but Suricata is still running', 'Press Apply to stop it.']);
+      items.push(['warn', 'Intrusion detection is switched off, but the service is still running', 'Press Apply to stop it.']);
     }
 
     if (st.enabled && st.mode === 'ips' && s.installed && !s.ready) {
-      items.push(['warn', 'Blocking is not active', 'Until Suricata is ready, forwarded traffic is not being inspected.']);
+      items.push(['warn', 'Blocking is not active', 'Until the service is ready, forwarded traffic is not being inspected.']);
     }
 
     if (st.enabled && st.rules.rule_count === 0 && s.installed) {
-      items.push(['warn', 'No signatures yet', 'Suricata has nothing to look for. They download automatically within a few minutes, or press "Update rules now" on the Overview tab.']);
+      items.push(['warn', 'No signatures yet', 'There is nothing to look for yet. They download automatically within a few minutes, or press "Update rules now" on the Overview tab.']);
     }
 
     items.forEach(([kind, title, text]) => {
@@ -124,7 +124,7 @@
   }
 
   function renderEngine(st) {
-    const s = st.suricata;
+    const s = st.engine;
 
     kv($('engStatus'), [
       ['Engine', engineBadge(st)],
@@ -346,7 +346,7 @@
   }
 
   async function runApply() {
-    toast('Applying… this can take a minute while Suricata loads its signatures.', 'info', 8000);
+    toast('Applying… this can take a minute while the service starts and updates its signatures.', 'info', 8000);
 
     try {
       const result = await lock([btnApply, $('btnSaveApply')], () => api('/api/ids/apply', { method: 'POST' }));

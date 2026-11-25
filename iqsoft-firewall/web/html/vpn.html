@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'self'">
-<title>VPN (WireGuard) | IQSOFT Firewall OS</title>
+<title>VPN | IQSOFT Firewall OS</title>
 <link rel="stylesheet" href="/css/base.css">
 <link rel="stylesheet" href="/css/dashboard.css">
 <link rel="stylesheet" href="/css/pages.css">
@@ -92,7 +92,7 @@
         <label class="switch"><input id="sEnabled" type="checkbox"><span class="slider"></span></label>
         <div class="switch-text">
           <b>Turn on the VPN server</b>
-          <span>Starts the WireGuard tunnel so peers can connect.</span>
+          <span>Starts the VPN tunnel so peers can connect.</span>
         </div>
       </div>
 
@@ -101,7 +101,7 @@
       <div class="form-grid cols-2">
         <label class="fld">
           <span>Interface name</span>
-          <input id="sIface" class="in mono" type="text" maxlength="15" placeholder="wg0" autocomplete="off" spellcheck="false">
+          <input id="sIface" class="in mono" type="text" maxlength="15" placeholder="vpn0" autocomplete="off" spellcheck="false">
           <small>The network interface the tunnel uses.</small>
         </label>
 

@@ -172,7 +172,7 @@ impl DhcpCommit {
             .arg(format!("--conf-file={}", path))
             .output()
             .await
-            .map_err(|e| format!("Could not run dnsmasq: {}", e))?;
+            .map_err(|e| format!("Could not run the DHCP service: {}", e))?;
 
         if !output.status.success() {
             return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());

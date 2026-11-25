@@ -270,7 +270,7 @@ impl Backend for SystemBackend {
             }
         }
 
-        Err("Suricata is not installed (try: apt install suricata)".to_string())
+        Err("The intrusion detection service is not installed on this firewall".to_string())
     }
 
     async fn test_config(&self, binary: &str, config_path: &str) -> Result<(), String> {
@@ -314,7 +314,7 @@ impl Backend for SystemBackend {
             let state = service_state().await;
 
             if state == "failed" {
-                return Err("Suricata stopped right after starting".to_string());
+                return Err("The intrusion detection service stopped right after starting".to_string());
             }
 
             if state == "active" && Path::new(&socket).exists() {
@@ -323,7 +323,7 @@ impl Backend for SystemBackend {
 
             if tokio::time::Instant::now() >= deadline {
                 return Err(format!(
-                    "Suricata was not ready after {} seconds",
+                    "The intrusion detection service was not ready after {} seconds",
                     READY_TIMEOUT.as_secs()
                 ));
             }
@@ -435,7 +435,7 @@ async fn apply_with<B: Backend>(
         let _ = fs::remove_file(&new_path);
 
         return Err(format!(
-            "Suricata refused the new configuration, nothing was changed:\n{}",
+            "The intrusion detection service refused the new configuration, nothing was changed:\n{}",
             e
         ));
     }
@@ -464,11 +464,11 @@ async fn apply_with<B: Backend>(
     remove_socket(&files);
 
     if let Err(e) = backend.systemctl(&["start", SERVICE]).await {
-        return Err(abort(backend, format!("Suricata could not be started: {}", e)).await);
+        return Err(abort(backend, format!("The intrusion detection service could not be started: {}", e)).await);
     }
 
     if let Err(e) = backend.wait_ready().await {
-        let mut message = format!("Suricata did not become ready: {}.", e);
+        let mut message = format!("The intrusion detection service did not become ready: {}.", e);
 
         if settings.mode == "ips" {
             message.push_str(" The IPS rules were not applied, so traffic is flowing uninspected.");
@@ -481,19 +481,19 @@ async fn apply_with<B: Backend>(
     if let Err(e) = backend.nft_apply(pool, lock).await {
         return Err(abort(
             backend,
-            format!("Suricata is ready but the IPS rules could not be applied: {}", e),
+            format!("The intrusion detection service is ready but the IPS rules could not be applied: {}", e),
         )
         .await);
     }
 
     Ok(if settings.mode == "ips" {
         format!(
-            "Suricata is running in IPS mode (inline, queue {})",
+            "The intrusion detection service is running in IPS mode (inline, queue {})",
             settings.queue_num
         )
     } else {
         format!(
-            "Suricata is running in IDS mode (watching {})",
+            "The intrusion detection service is running in IDS mode (watching {})",
             interfaces.join(", ")
         )
     })

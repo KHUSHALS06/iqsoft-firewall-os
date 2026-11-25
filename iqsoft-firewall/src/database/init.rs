@@ -1,8 +1,60 @@
 use sqlx::{Row, SqlitePool};
 
+/// Splits a port name into text and number chunks so "enp2s0" sorts before "enp10s0".
+fn natural_key(name: &str) -> Vec<(String, u64)> {
+    let mut key = Vec::new();
+    let mut text = String::new();
+    let mut digits = String::new();
+
+    for ch in name.chars() {
+        if ch.is_ascii_digit() {
+            digits.push(ch);
+        } else {
+            if !digits.is_empty() {
+                key.push((std::mem::take(&mut text), digits.parse().unwrap_or(0)));
+                digits.clear();
+            }
+            text.push(ch);
+        }
+    }
+    key.push((text, digits.parse().unwrap_or(0)));
+    key
+}
+
+/// Real network ports on this machine (cards with a hardware device behind them),
+/// in port order. Loopback, bridges, tunnels and other virtual links are skipped.
+fn physical_ports() -> Vec<String> {
+    let mut ports: Vec<String> = Vec::new();
+
+    if let Ok(entries) = std::fs::read_dir("/sys/class/net") {
+        for entry in entries.flatten() {
+            let name = entry.file_name().to_string_lossy().to_string();
+            if name == "lo" {
+                continue;
+            }
+            if entry.path().join("device").exists() {
+                ports.push(name);
+            }
+        }
+    }
+
+    ports.sort_by_key(|n| natural_key(n));
+    ports
+}
+
+/// Port 1 is the WAN and port 4 is the LAN. With fewer than four ports the last
+/// port is used as the LAN. /etc/iqsoft/ports.conf (wan=..., lan=...) overrides this.
 fn seed_port_names() -> (String, String) {
-    let mut wan = String::from("eth0");
-    let mut lan = String::from("eth1");
+    let ports = physical_ports();
+
+    let mut wan = ports.first().cloned().unwrap_or_else(|| String::from("eth0"));
+    let mut lan = if ports.len() >= 4 {
+        ports[3].clone()
+    } else if ports.len() >= 2 {
+        ports[ports.len() - 1].clone()
+    } else {
+        String::from("eth1")
+    };
 
     if let Ok(text) = std::fs::read_to_string("/etc/iqsoft/ports.conf") {
         for line in text.lines() {
@@ -21,7 +73,10 @@ fn seed_port_names() -> (String, String) {
     }
 
     if wan == lan {
-        wan = String::from("eth1");
+        lan = String::from("eth1");
+        if wan == lan {
+            wan = String::from("eth0");
+        }
     }
 
     (wan, lan)
@@ -262,6 +317,12 @@ pub async fn initialize_database(pool: &SqlitePool) -> Result<(), sqlx::Error> {
         println!("✓ Created network_config table (wan={}, lan={} — update before commit if wrong)", seed_wan, seed_lan);
     }
 
+    // DHCP and DNS defaults follow whichever port is the LAN.
+    let default_lan: String = sqlx::query_scalar("SELECT lan_interface FROM network_config WHERE id = 1")
+        .fetch_optional(pool)
+        .await?
+        .unwrap_or_else(|| String::from("eth1"));
+
     sqlx::query(
         r#"
         CREATE TABLE IF NOT EXISTS dhcp_config (
@@ -284,9 +345,10 @@ pub async fn initialize_database(pool: &SqlitePool) -> Result<(), sqlx::Error> {
     sqlx::query(
         r#"
         INSERT OR IGNORE INTO dhcp_config (id, enabled, interface_name, gateway)
-        VALUES (1, 0, 'eth1', '192.168.1.1');
+        VALUES (1, 0, ?, '192.168.1.1');
         "#,
     )
+    .bind(&default_lan)
     .execute(pool)
     .await?;
 
@@ -321,9 +383,10 @@ pub async fn initialize_database(pool: &SqlitePool) -> Result<(), sqlx::Error> {
     sqlx::query(
         r#"
         INSERT OR IGNORE INTO dns_config (id, enabled, listen_interfaces)
-        VALUES (1, 0, 'eth1');
+        VALUES (1, 0, ?);
         "#,
     )
+    .bind(&default_lan)
     .execute(pool)
     .await?;
 

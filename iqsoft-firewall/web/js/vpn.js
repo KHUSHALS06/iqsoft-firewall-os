@@ -7,7 +7,7 @@
 
   const frame = Shell.mount({
     active: 'vpn',
-    title: 'VPN (WireGuard)',
+    title: 'VPN',
     subtitle: 'Let devices and sites connect securely to this firewall',
     content: $('page')
   });
@@ -25,7 +25,7 @@
 
   const btnApply = h('button', { class: 'btn primary', type: 'button', title: 'Put the saved VPN settings into effect' },
     icon('i-play'), 'Apply');
-  const btnPreview = h('button', { class: 'btn', type: 'button', title: 'Show the WireGuard configuration that would be applied' },
+  const btnPreview = h('button', { class: 'btn', type: 'button', title: 'Show the VPN configuration that would be applied' },
     icon('i-eye'), 'Preview');
   const btnRollback = h('button', { class: 'btn', type: 'button', title: 'Go back to the previous VPN configuration' },
     icon('i-undo'), 'Roll back');
@@ -190,13 +190,13 @@
   }
 
   async function loadConfig() {
-    state.config = await api('/api/wireguard/config');
+    state.config = await api('/api/vpn/config');
     fillSettings();
     renderNotices();
   }
 
   async function loadPeers() {
-    const list = await api('/api/wireguard/peers');
+    const list = await api('/api/vpn/peers');
     state.peers = (Array.isArray(list) ? list : []).slice()
       .sort((a, b) => String(a.name).localeCompare(String(b.name), undefined, { sensitivity: 'base' }));
     renderPeers();
@@ -204,7 +204,7 @@
 
   async function refreshStatus() {
     try {
-      state.status = await api('/api/wireguard/status');
+      state.status = await api('/api/vpn/status');
       state.statusError = '';
       live(true, 'Live');
     } catch (e) {
@@ -222,7 +222,7 @@
     box.disabled = true;
 
     try {
-      await api('/api/wireguard/peers/' + encodeURIComponent(peer.id), {
+      await api('/api/vpn/peers/' + encodeURIComponent(peer.id), {
         method: 'PUT',
         body: {
           name: peer.name,
@@ -248,7 +248,7 @@
     if (!ok) return;
 
     try {
-      await api('/api/wireguard/peers/' + encodeURIComponent(peer.id), { method: 'DELETE' });
+      await api('/api/vpn/peers/' + encodeURIComponent(peer.id), { method: 'DELETE' });
       toast('Peer deleted. Press Apply to put it into effect.', 'ok');
       await loadPeers();
     } catch (e) {
@@ -438,7 +438,7 @@
 
       let res;
       try {
-        res = await busy(saveBtn, () => api(editing ? '/api/wireguard/peers/' + encodeURIComponent(existing.id) : '/api/wireguard/peers', {
+        res = await busy(saveBtn, () => api(editing ? '/api/vpn/peers/' + encodeURIComponent(existing.id) : '/api/vpn/peers', {
           method: editing ? 'PUT' : 'POST',
           body: payload
         }));
@@ -467,7 +467,7 @@
     }
 
     const iface = $('sIface').value.trim();
-    if (!iface) return fail('Enter the interface name, for example wg0.', 'sIface');
+    if (!iface) return fail('Enter the interface name, for example vpn0.', 'sIface');
 
     const port = Number($('sPort').value);
     if (!Number.isInteger(port) || port < 1 || port > 65535) return fail('The listen port must be a number from 1 to 65535.', 'sPort');
@@ -495,7 +495,7 @@
     const endpoint = $('sEndpoint').value.trim();
 
     try {
-      state.config = await busy($('btnSaveSettings'), () => api('/api/wireguard/config', {
+      state.config = await busy($('btnSaveSettings'), () => api('/api/vpn/config', {
         method: 'PUT',
         body: {
           enabled: $('sEnabled').checked,
@@ -520,7 +520,7 @@
 
   async function applyNow() {
     try {
-      const res = await busy(btnApply, () => api('/api/wireguard/commit', { method: 'POST' }));
+      const res = await busy(btnApply, () => api('/api/vpn/commit', { method: 'POST' }));
       toast((res && res.message) || 'VPN settings applied.', 'ok');
       await refreshStatus();
     } catch (e) {
@@ -534,7 +534,7 @@
     if (!ok) return;
 
     try {
-      const res = await busy(btnRollback, () => api('/api/wireguard/rollback', { method: 'POST' }));
+      const res = await busy(btnRollback, () => api('/api/vpn/rollback', { method: 'POST' }));
       toast((res && res.message) || 'Rolled back to the previous VPN configuration.', 'ok');
       await refreshStatus();
     } catch (e) {
@@ -544,10 +544,10 @@
 
   async function previewConfig() {
     try {
-      const res = await busy(btnPreview, () => api('/api/wireguard/generate'));
+      const res = await busy(btnPreview, () => api('/api/vpn/generate'));
       const close = h('button', { class: 'btn', type: 'button' }, 'Close');
       const modal = openModal({
-        title: 'WireGuard configuration that would be applied',
+        title: 'VPN configuration that would be applied',
         body: h('pre', { class: 'code mono', text: (res && res.config) || '' }),
         footer: [close],
         wide: true

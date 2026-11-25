@@ -13,6 +13,9 @@
   if (!frame) return;
 
   const state = { policies: [], sets: [] };
+
+  Countries.fill($('pCode'), 'Choose a country');
+  Countries.fill($('dCode'), 'Choose a country');
   const DIR_LABELS = { inbound: 'Inbound', outbound: 'Outbound', both: 'Both' };
 
   const btnRefresh = h('button', { class: 'icon-square', type: 'button', 'aria-label': 'Refresh now', title: 'Refresh now' }, icon('i-refresh'));
@@ -70,7 +73,7 @@
       toggle.addEventListener('change', () => setEnabled(p, toggle));
 
       body.append(h('tr', null,
-        h('td', { class: 'mono nowrap' }, h('b', { text: code(p.country_code) })),
+        h('td', { class: 'nowrap' }, h('b', { text: Countries.label(p.country_code) })),
         h('td', null, badge(DIR_LABELS[p.direction] || p.direction)),
         h('td', null, h('label', { class: 'switch' }, toggle, h('span', { class: 'slider' }))),
         h('td', null, hasList(p.country_code) ? badge('Loaded', 'ok') : badge('Not loaded', 'bad')),
@@ -120,7 +123,7 @@
     ev.preventDefault();
     setError('polError', '');
     const cc = code($('pCode').value);
-    if (!validCode(cc)) { setError('polError', 'Enter a two-letter country code such as CN.'); return; }
+    if (!validCode(cc)) { setError('polError', 'Choose a country from the list.'); return; }
 
     try {
       await lock([$('btnAddPol')], () => api('/api/geoip/policies', {
@@ -150,7 +153,7 @@
 
     state.sets.forEach((s) => {
       body.append(h('tr', null,
-        h('td', { class: 'mono nowrap' }, h('b', { text: code(s.country_code) })),
+        h('td', { class: 'nowrap' }, h('b', { text: Countries.label(s.country_code) })),
         h('td', { class: 'mono', text: num(s.ipv4_count || 0) }),
         h('td', { class: 'mono', text: num(s.ipv6_count || 0) }),
         h('td', { class: 'wide', text: s.source || '–' }),
@@ -197,7 +200,7 @@
     const cc = code($('dCode').value);
     const data = $('dData').value;
 
-    if (!validCode(cc)) { setError('setError', 'Enter a two-letter country code such as CN.'); return; }
+    if (!validCode(cc)) { setError('setError', 'Choose a country from the list.'); return; }
     if (!data.trim()) { setError('setError', 'Paste address ranges or choose a file.'); return; }
 
     if (hasList(cc)) {

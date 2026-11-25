@@ -66,7 +66,7 @@
         <div class="card-h"><h3><svg class="ic h-ic" aria-hidden="true"><use href="#i-pulse"/></svg>Since the firewall started</h3></div>
         <dl id="countersInfo" class="kv"></dl>
         <div class="card-foot">
-          <span class="muted">Web downloads over plain HTTP are checked by ClamAV before they reach your devices.</span>
+          <span class="muted">Web downloads over plain HTTP are checked by the virus scanner before they reach your devices.</span>
         </div>
       </div>
     </div>
@@ -91,7 +91,7 @@
         <label class="switch"><input id="sEnabled" type="checkbox"><span class="slider"></span></label>
         <div class="switch-text">
           <b>Turn on antivirus</b>
-          <span>Scans files downloaded over HTTP with ClamAV.</span>
+          <span>Scans files downloaded over HTTP for viruses.</span>
         </div>
       </div>
 
@@ -149,8 +149,8 @@
 
         <label class="fld">
           <span>Scanner connection path</span>
-          <input id="sSocket" class="in mono" type="text" placeholder="/run/clamav/clamd.ctl" autocomplete="off" spellcheck="false">
-          <small>Full path of the clamd socket on this firewall.</small>
+          <input id="sSocket" class="in mono" type="text" autocomplete="off" spellcheck="false">
+          <small>Advanced. Leave this unchanged unless support asks you to change it.</small>
         </label>
         </div>
       </details>

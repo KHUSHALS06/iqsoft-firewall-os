@@ -55,11 +55,11 @@ impl WireguardCommit {
 
             return Err(match Self::apply_state(&fallback, Some(&target)).await {
                 Ok(_) => format!(
-                    "Applying WireGuard failed, previous configuration restored: {}",
+                    "Applying VPN failed, previous configuration restored: {}",
                     e
                 ),
                 Err(revert_error) => format!(
-                    "Applying WireGuard failed ({}) and restoring the previous configuration also failed ({}) — check 'wg show' and 'ip addr' manually",
+                    "Applying VPN failed ({}) and restoring the previous configuration also failed ({}) — contact support",
                     e, revert_error
                 ),
             });
@@ -78,12 +78,12 @@ impl WireguardCommit {
 
         if target.config.enabled {
             Ok(format!(
-                "WireGuard updated: interface {} is up with {} peer(s)",
+                "VPN updated: interface {} is up with {} peer(s)",
                 target.config.interface_name,
                 rendered.matches("[Peer]").count()
             ))
         } else {
-            Ok("WireGuard is disabled".into())
+            Ok("VPN is disabled".into())
         }
     }
 
@@ -91,11 +91,11 @@ impl WireguardCommit {
         let _guard = lock.lock().await;
 
         if !Path::new(PREVIOUS_DB_PATH).exists() {
-            return Err("No previous WireGuard configuration available to roll back to".into());
+            return Err("No previous VPN configuration available to roll back to".into());
         }
 
         let previous = Self::read_snapshot(PREVIOUS_DB_PATH)?
-            .ok_or_else(|| "No previous WireGuard configuration available to roll back to".to_string())?;
+            .ok_or_else(|| "No previous VPN configuration available to roll back to".to_string())?;
         let current = Self::read_snapshot(CURRENT_DB_PATH)?;
 
         if previous.config.enabled {
@@ -113,7 +113,7 @@ impl WireguardCommit {
             return Err(match Self::apply_state(&fallback, Some(&previous)).await {
                 Ok(_) => format!("Rollback failed, current configuration restored: {}", e),
                 Err(revert_error) => format!(
-                    "Rollback failed ({}) and restoring the current configuration also failed ({}) — check 'wg show' and 'ip addr' manually",
+                    "Rollback failed ({}) and restoring the current configuration also failed ({}) — contact support",
                     e, revert_error
                 ),
             });
@@ -129,14 +129,14 @@ impl WireguardCommit {
         .await
         {
             return Err(format!(
-                "Rollback applied to the live tunnel, but failed to sync the database: {}. The live tunnel and database are now out of sync — do not run /api/wireguard/commit until this is resolved.",
+                "Rollback applied to the live tunnel, but failed to sync the database: {}. The live tunnel and database are now out of sync — do not apply the VPN until this is resolved.",
                 e
             ));
         }
 
         Self::write_private(CURRENT_DB_PATH, &previous_json)?;
 
-        Ok("Rolled back to previous WireGuard configuration successfully".into())
+        Ok("Rolled back to previous VPN configuration successfully".into())
     }
 
     pub async fn restore_on_boot(lock: &Arc<Mutex<()>>) -> Result<String, String> {
@@ -145,18 +145,18 @@ impl WireguardCommit {
         let snapshot = match Self::read_snapshot(CURRENT_DB_PATH)? {
             Some(snapshot) => snapshot,
             None => {
-                return Ok("No saved WireGuard configuration found, nothing was restored".into())
+                return Ok("No saved VPN configuration found, nothing was restored".into())
             }
         };
 
         if !snapshot.config.enabled {
-            return Ok("WireGuard is disabled, nothing was restored".into());
+            return Ok("VPN is disabled, nothing was restored".into());
         }
 
         Self::apply_state(&snapshot, None).await?;
 
         Ok(format!(
-            "Restored WireGuard interface {}",
+            "Restored VPN interface {}",
             snapshot.config.interface_name
         ))
     }
@@ -350,7 +350,7 @@ impl WireguardCommit {
     }
 
     /// Loads the new config into a throw-away interface first. This proves the
-    /// kernel supports WireGuard and that wg accepts every line, before the
+    /// kernel supports VPN and that wg accepts every line, before the
     /// live tunnel is touched. The throw-away interface is always removed.
     async fn trial_load(rendered: &str) -> Result<(), String> {
         let wg_text = Self::strip_for_wg(rendered);
@@ -366,7 +366,7 @@ impl WireguardCommit {
         .await
         .map_err(|e| {
             format!(
-                "{} (does this kernel support WireGuard, and is the firewall running as root?)",
+                "{} (does this kernel support VPN, and is the firewall running as root?)",
                 e
             )
         })?;
@@ -390,7 +390,7 @@ impl WireguardCommit {
 
         if !Self::interface_is_wireguard(name) {
             return Err(format!(
-                "Interface '{}' exists but is not a WireGuard interface, refusing to remove it",
+                "Interface '{}' exists but is not a VPN interface, refusing to remove it",
                 name
             ));
         }
@@ -403,7 +403,7 @@ impl WireguardCommit {
     fn check_interface_available(name: &str) -> Result<(), String> {
         if Self::interface_exists(name) && !Self::interface_is_wireguard(name) {
             return Err(format!(
-                "Interface '{}' already exists on this system and is not a WireGuard interface, choose another interface name",
+                "Interface '{}' already exists on this system and is not a VPN interface, choose another interface name",
                 name
             ));
         }
@@ -431,7 +431,7 @@ impl WireguardCommit {
         if valid {
             Ok(())
         } else {
-            Err(format!("Invalid WireGuard interface name '{}'", name))
+            Err(format!("Invalid VPN interface name '{}'", name))
         }
     }
 
@@ -517,7 +517,7 @@ impl WireguardCommit {
 
         serde_json::from_str(&json)
             .map(Some)
-            .map_err(|e| format!("Saved WireGuard snapshot {} is corrupt: {}", path, e))
+            .map_err(|e| format!("Saved VPN snapshot {} is corrupt: {}", path, e))
     }
 
     /// Keys live in these files, so they are created readable by the owner only.

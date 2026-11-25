@@ -136,14 +136,14 @@ impl StreamingScan {
             _ => match timeout(limit, self.client.begin_stream()).await {
                 Ok(Ok(session)) => session,
                 Ok(Err(error)) => return self.fail(&error, chunk),
-                Err(_) => return self.fail("ClamAV connection timed out", chunk),
+                Err(_) => return self.fail("Virus scanner connection timed out", chunk),
             },
         };
 
         match timeout(limit, session.send(chunk)).await {
             Ok(Ok(())) => {}
             Ok(Err(error)) => return self.fail(&error, chunk),
-            Err(_) => return self.fail("ClamAV scanning timed out", chunk),
+            Err(_) => return self.fail("Virus scanner scanning timed out", chunk),
         }
 
         self.state = State::Scanning(session);
@@ -178,7 +178,7 @@ impl StreamingScan {
 
         let verdict = match timeout(limit, session.finish()).await {
             Ok(result) => result,
-            Err(_) => Err("ClamAV scanning timed out".to_string()),
+            Err(_) => Err("Virus scanner scanning timed out".to_string()),
         };
 
         match verdict {

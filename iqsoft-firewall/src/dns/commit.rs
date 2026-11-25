@@ -163,7 +163,7 @@ impl DnsCommit {
             .arg(format!("--conf-file={}", path))
             .output()
             .await
-            .map_err(|e| format!("Could not run dnsmasq: {}", e))?;
+            .map_err(|e| format!("Could not run the DNS service: {}", e))?;
 
         if !output.status.success() {
             return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());

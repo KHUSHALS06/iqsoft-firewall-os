@@ -59,7 +59,7 @@ pub struct AvSettings {
     #[serde(default)]
     pub block_encrypted_archives: bool,
 
-    #[serde(default = "default_clamd_socket")]
+    #[serde(default = "default_clamd_socket", rename = "scanner_socket", alias = "clamd_socket")]
     pub clamd_socket: String,
 
     #[serde(default = "default_proxy_port")]
@@ -137,21 +137,21 @@ pub fn normalize_socket_path(value: &str) -> Result<String, String> {
 
     if path.is_empty() || path.len() > MAX_SOCKET_LEN {
         return Err(format!(
-            "ClamAV socket path must be between 1 and {} characters",
+            "Virus scanner socket path must be between 1 and {} characters",
             MAX_SOCKET_LEN
         ));
     }
 
     if !path.starts_with('/') {
-        return Err("ClamAV socket path must be an absolute path".into());
+        return Err("Virus scanner socket path must be an absolute path".into());
     }
 
     if path.chars().any(|c| c.is_control() || c.is_whitespace()) {
-        return Err("ClamAV socket path cannot contain spaces or control characters".into());
+        return Err("Virus scanner socket path cannot contain spaces or control characters".into());
     }
 
     if path.split('/').any(|part| part == "..") {
-        return Err("ClamAV socket path cannot contain '..'".into());
+        return Err("Virus scanner socket path cannot contain '..'".into());
     }
 
     Ok(path.to_string())

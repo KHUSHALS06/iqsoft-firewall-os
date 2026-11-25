@@ -128,7 +128,7 @@ pub async fn status(State(state): State<AppState>) -> impl IntoResponse {
     if !is_safe_iface(&iface) {
         return (
             StatusCode::BAD_REQUEST,
-            Json(json!({ "error": "WireGuard interface name is not valid" })),
+            Json(json!({ "error": "VPN interface name is not valid" })),
         );
     }
 

@@ -32,7 +32,7 @@
     finally { list.forEach((b) => { b.disabled = false; b.classList.remove('busy'); }); }
   }
 
-  /* Saving also applies the filter to dnsmasq. If that step failed the data
+  /* Saving also applies the filter to the DNS service. If that step failed the data
      is still saved, so tell the user it is not live yet. */
   function checkApplied(r) {
     if (r && r.applied === false) {

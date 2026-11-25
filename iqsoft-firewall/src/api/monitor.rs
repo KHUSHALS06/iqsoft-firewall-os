@@ -52,7 +52,7 @@ pub async fn get_connections(Query(query): Query<ConnectionQuery>) -> impl IntoR
     }
 }
 
-/// GET /api/monitor/conntrack-usage
+/// GET /api/monitor/connection-usage
 pub async fn get_conntrack_usage() -> impl IntoResponse {
     (StatusCode::OK, Json(json!(conntrack::read_usage())))
 }
