@@ -20,3 +20,4 @@ pub mod threatfeed_repository;
 pub mod av_repository;
 pub mod sdwan_repository;
 pub mod ids_repository;
+pub mod overlay_repository;

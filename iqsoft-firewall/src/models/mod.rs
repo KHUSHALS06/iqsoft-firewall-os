@@ -18,3 +18,4 @@ pub mod threatfeed;
 pub mod av;
 pub mod sdwan;
 pub mod ids;
+pub mod overlay;

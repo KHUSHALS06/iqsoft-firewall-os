@@ -11,6 +11,9 @@
 <body class="login-body">
 <main class="login-page">
   <aside class="login-side">
+    <canvas id="netCanvas" class="net-canvas" aria-hidden="true"></canvas>
+    <i class="spark s1"></i><i class="spark s2"></i><i class="spark s3"></i><i class="spark s4"></i><i class="spark s5"></i><i class="spark s6"></i>
+
     <div class="side-inner">
       <div class="lock-stage" aria-hidden="true">
         <svg class="lock-svg" viewBox="0 0 128 128">
@@ -41,8 +44,13 @@
     <div class="side-foot">v1.0.0</div>
   </aside>
 
-  <section class="login-panel">
-    <div class="glass login-card">
+  <section class="login-panel" id="loginPanel">
+    <i class="orb o1" aria-hidden="true"></i>
+    <i class="orb o2" aria-hidden="true"></i>
+    <div class="radar" aria-hidden="true">
+      <i class="blip b1"></i><i class="blip b2"></i><i class="blip b3"></i><i class="blip b4"></i><i class="blip b5"></i>
+    </div>
+    <div class="glass login-card" id="loginCard">
       <h1 class="login-title"><img src="/img/iqsoft-logo.png" alt="IQSOFT" width="200" height="31"></h1>
 
       <form id="loginForm" method="post" novalidate>
@@ -68,16 +76,25 @@
           </span>
         </label>
 
+        <div id="capsHint" class="caps" hidden>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 3 13h5v4h8v-4h5L12 3Zm-4 16h8v2H8v-2Z" fill="currentColor"/></svg>
+          Caps Lock is on
+        </div>
+
         <button id="submitBtn" class="btn-primary" type="submit">
           <span class="btn-label">Sign in</span>
           <span class="spinner" aria-hidden="true"></span>
+          <svg class="check" viewBox="0 0 28 28" aria-hidden="true"><path d="M5 15l6 6 12-13"/></svg>
         </button>
       </form>
+
+      <div class="secure"><i class="dot ok"></i>Secure connection</div>
     </div>
   </section>
 </main>
 
 <script src="/js/core/api.js"></script>
+<script src="/js/login-net.js"></script>
 <script src="/js/login.js"></script>
 </body>
 </html>

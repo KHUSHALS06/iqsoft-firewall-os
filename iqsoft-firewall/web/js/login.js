@@ -5,6 +5,8 @@
   }
 
   const form = document.getElementById('loginForm');
+  const card = document.getElementById('loginCard');
+  const panel = document.getElementById('loginPanel');
   const userInput = document.getElementById('username');
   const passInput = document.getElementById('password');
   const submitBtn = document.getElementById('submitBtn');
@@ -14,17 +16,66 @@
   const eyeOpen = toggleBtn.querySelector('.eye-open');
   const eyeClosed = toggleBtn.querySelector('.eye-closed');
   const welcomeUser = document.getElementById('welcomeUser');
+  const capsHint = document.getElementById('capsHint');
+  const calm = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const touch = window.matchMedia('(pointer: coarse)').matches;
 
   userInput.addEventListener('input', () => {
     welcomeUser.textContent = userInput.value.trim();
   });
 
+  if (!calm && !touch) {
+    panel.addEventListener('mousemove', (e) => {
+      const p = panel.getBoundingClientRect();
+      panel.style.setProperty('--mx', (e.clientX - p.left) + 'px');
+      panel.style.setProperty('--my', (e.clientY - p.top) + 'px');
+      if (card.classList.contains('is-ok')) return;
+      const r = card.getBoundingClientRect();
+      const x = (e.clientX - r.left) / r.width - 0.5;
+      const y = (e.clientY - r.top) / r.height - 0.5;
+      card.style.transform = 'perspective(900px) rotateY(' + (x * 9) + 'deg) rotateX(' + (-y * 9) + 'deg)';
+    });
+    panel.addEventListener('mouseleave', () => {
+      card.style.transform = '';
+    });
+  }
+
+  submitBtn.addEventListener('pointerdown', (e) => {
+    if (submitBtn.disabled) return;
+    const r = submitBtn.getBoundingClientRect();
+    const ripple = document.createElement('span');
+    ripple.className = 'rip';
+    ripple.style.left = (e.clientX - r.left) + 'px';
+    ripple.style.top = (e.clientY - r.top) + 'px';
+    submitBtn.appendChild(ripple);
+    setTimeout(() => ripple.remove(), 650);
+  });
+
+  function onKey(e) {
+    if (typeof e.getModifierState !== 'function') return;
+    capsHint.hidden = !e.getModifierState('CapsLock');
+  }
+  passInput.addEventListener('keydown', onKey);
+  passInput.addEventListener('keyup', onKey);
+  passInput.addEventListener('blur', () => { capsHint.hidden = true; });
+
+  card.addEventListener('animationend', (e) => {
+    if (e.animationName === 'shake') card.classList.remove('shake');
+  });
+
   let lockTimer = null;
+
+  function shake() {
+    card.classList.remove('shake');
+    void card.offsetWidth;
+    card.classList.add('shake');
+  }
 
   function showError(message, warn) {
     errorBox.textContent = message;
     errorBox.classList.toggle('warn', !!warn);
     errorBox.hidden = false;
+    if (!warn) shake();
   }
 
   function clearError() {
@@ -107,12 +158,16 @@
       if (res.ok && data.token) {
         Auth.set(data.token, data.expires_at);
         passInput.value = '';
+        submitBtn.classList.remove('is-busy');
+        submitBtn.classList.add('is-ok');
+        card.style.transform = '';
+        card.classList.add('is-ok');
         let target = '/html/dashboard.html';
         try {
           await Access.refresh();
           target = Access.landing() || target;
         } catch (_) {}
-        location.replace(target);
+        setTimeout(() => location.replace(target), calm ? 0 : 750);
         return;
       }
 
@@ -139,4 +194,3 @@
   });
 
 })();
-
