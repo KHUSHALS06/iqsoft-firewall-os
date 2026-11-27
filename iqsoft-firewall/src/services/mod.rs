@@ -22,3 +22,4 @@ pub mod threatfeed_service;
 pub mod av_service;
 pub mod sdwan_service;
 pub mod ids_service;
+pub mod overlay_service;
